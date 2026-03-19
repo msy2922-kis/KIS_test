@@ -24,7 +24,6 @@ from typing import Dict, List, Optional, Tuple
 
 from curves.base_curve import IRCurve
 from utils.day_count import dcf, add_tenor
-from utils.interpolation import log_linear_df
 
 
 # ---------------------------------------------------------------------------
@@ -217,6 +216,9 @@ class KRWKTBCurve(IRCurve):
             pillar_times.append(t_N)
             pillar_dfs.append(df_N)
             self._set_pillars(pillar_times.copy(), pillar_dfs.copy())
+
+        # 0.25Y 가상 노드 추가 (부트스트랩 완료 후)
+        self._densify(step=0.25)
 
     # ------------------------------------------------------------------
     # Convenience: par KTB yield implied by the curve

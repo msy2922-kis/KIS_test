@@ -43,6 +43,47 @@ class IRCurve:
         self._times = t[order]
         self._dfs = d[order]
 
+    def _densify(self, step: float = 0.25) -> None:
+        """
+        부트스트랩 완료 후 0.25Y 간격 가상 노드를 추가한다.
+
+        동작 원리
+        ---------
+        1. 현재 MC 커브(시장 필라 기반)를 `step` 간격 그리드에서 평가
+        2. 기존 시장 필라 시간과 가상 노드 시간을 병합
+           - 시장 필라에서 `tol` 이내인 가상 노드는 중복 방지를 위해 생략
+        3. 병합된 고밀도 그리드의 DF 를 저장
+           → 시장 필라 DF 는 정확히 보존 (MC exact-pass-through 특성)
+           → No-Arbitrage / Area Preservation / Monotone Convex 모두 유지
+
+        Parameters
+        ----------
+        step : float
+            가상 노드 간격 (연도 단위, 기본 0.25 = 분기).
+        """
+        tol = step * 0.02          # ≈ 1.8 일 (step=0.25 기준); 실제 날짜 단수 흡수
+        t_max = self._times[-1]
+
+        # step 간격 가상 노드 (floating-point 누적 오차 방지를 위해 round)
+        t_virtual = np.round(np.arange(0.0, t_max + step * 0.5, step), 10)
+
+        # 시장 필라 목록 (원본)
+        t_market = list(self._times)
+
+        # 시장 필라와 겹치지 않는 가상 노드만 추가
+        t_extra = [
+            tv for tv in t_virtual
+            if all(abs(tv - tm) > tol for tm in t_market)
+        ]
+
+        t_combined = np.sort(np.array(t_market + t_extra))
+
+        # 현재 MC 커브로 가상 노드 DF 평가 (시장 필라에서는 정확히 원값 반환)
+        df_combined = monotone_convex_df(self._times, self._dfs, t_combined)
+
+        self._times = t_combined
+        self._dfs   = df_combined
+
     # ------------------------------------------------------------------
     # Public query methods
     # ------------------------------------------------------------------
