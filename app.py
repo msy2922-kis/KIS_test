@@ -325,8 +325,15 @@ with tab_ktb:
 
                 st.success(f"커브 빌드 완료: {curve}")
 
-                # Summary
-                tenors_yr = [3/12, 6/12, 1, 2, 3, 5, 7, 10, 15, 20, 30]
+                # Summary — 3M·6M 단기 + 입력 테너 전체 포함 (최대 50Y)
+                max_tenor = max(
+                    {"1Y": 1, "2Y": 2, "3Y": 3, "5Y": 5, "10Y": 10,
+                     "20Y": 20, "30Y": 30, "50Y": 50}.get(t, 1)
+                    for t in bond_quotes
+                )
+                long_tenors = [y for y in [1, 2, 3, 5, 7, 10, 15, 20, 30, 50]
+                               if y <= max_tenor]
+                tenors_yr = [3/12, 6/12] + long_tenors
                 summary = curve.summary(tenors_yr)
                 st.subheader("Curve Summary")
                 st.dataframe(summary, use_container_width=True)
@@ -337,7 +344,7 @@ with tab_ktb:
                     use_container_width=True,
                 )
 
-                # Validation
+                # Validation — 국고채 Par Yield 역산 (단기채는 단리로 부트스트랩되어 제외)
                 st.subheader("Validation (Implied vs Input)")
                 vdf = validation_df(curve, bond_quotes)
                 st.dataframe(
