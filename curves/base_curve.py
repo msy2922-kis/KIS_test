@@ -10,7 +10,7 @@ import pandas as pd
 from datetime import date
 from typing import List, Tuple
 
-from utils.interpolation import log_linear_df
+from utils.interpolation import monotone_convex_df
 
 
 class IRCurve:
@@ -53,7 +53,7 @@ class IRCurve:
         t: year-fraction(s) from valuation date.
         """
         t = np.atleast_1d(np.asarray(t, dtype=float))
-        return log_linear_df(self._times, self._dfs, t)
+        return monotone_convex_df(self._times, self._dfs, t)
 
     def zero_rate(self, t: float | np.ndarray, compounding: str = "continuous") -> np.ndarray:
         """
