@@ -271,15 +271,24 @@ with tab_ktb:
             "기준일", value=date(2024, 3, 19), key="ktb_val_date"
         )
 
-        st.subheader("단기 기준금리 (3M T-bill)")
-        ktb_short_rate = st.number_input(
-            "3M 단기채 금리 (%, 단리)",
+        st.subheader("단기 기준금리 (단리, Simple Interest)")
+        ktb_short_rate_3m = st.number_input(
+            "3M 단기채 금리 (%)",
             value=3.55,
             min_value=0.0,
             max_value=50.0,
             step=0.01,
             format="%.4f",
-            key="ktb_short_rate",
+            key="ktb_short_rate_3m",
+        )
+        ktb_short_rate_6m = st.number_input(
+            "6M 단기채 금리 (%)",
+            value=3.50,
+            min_value=0.0,
+            max_value=50.0,
+            step=0.01,
+            format="%.4f",
+            key="ktb_short_rate_6m",
         )
 
         st.subheader("국고채 수익률 (Par Yield)")
@@ -310,8 +319,8 @@ with tab_ktb:
                 curve = KRWKTBCurve(
                     valuation_date=ktb_val_date,
                     bond_quotes=bond_quotes,
-                    short_rate=ktb_short_rate / 100,
-                    short_tenor="3M",
+                    short_rate_3m=ktb_short_rate_3m / 100,
+                    short_rate_6m=ktb_short_rate_6m / 100,
                 )
 
                 st.success(f"커브 빌드 완료: {curve}")

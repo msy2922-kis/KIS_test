@@ -9,12 +9,12 @@ Market conventions (KRW KTB):
   - Day count : Actual/365 Fixed
   - Coupon    : Semi-annual payments (6M intervals)
   - Yield     : Annual par yield; each coupon = yield * dcf(period, ACT/365)
-  - Short end : Sub-6M tenor (e.g. 3M T-bill) as simple interest zero rate
+  - Short end : 3M and/or 6M simple interest zero rates (단리)
 
 Bootstrapping approach:
-  - Short end: DF = 1 / (1 + rate * t)  [simple interest]
-  - 6M+ : Market par yields linearly interpolated to fill all 6M-step tenors,
-           then sequential bootstrap from semi-annual coupon bond par yields.
+  - Short end (3M, 6M): DF = 1 / (1 + rate * t)  [simple interest / 단리]
+  - 7M+  : Market par yields linearly interpolated to fill all 6M-step tenors,
+            then sequential bootstrap from semi-annual coupon bond par yields.
 """
 from __future__ import annotations
 
@@ -51,23 +51,23 @@ def _semiannual_schedule(valuation: date, maturity: date) -> List[date]:
 def _fill_semiannual_tenors(
     bond_quotes: Dict[str, float],
     valuation: date,
-    short_rate: Optional[float] = None,
-    short_tenor: str = "3M",
+    short_quotes: Optional[Dict[str, float]] = None,
 ) -> List[Tuple[date, float]]:
     """
     Return a list of (maturity_date, par_yield) pairs covering every 6M step
     from 6M to the maximum quoted tenor.
 
     Missing 6M-step tenors are linearly interpolated from market quotes.
-    If short_rate is provided, it is used as a lower anchor for interpolation.
+    short_quotes (e.g. {'3M': 0.035, '6M': 0.036}) are used as lower anchors
+    for interpolation.
     """
     known: Dict[float, float] = {}
 
-    # Optional short-end anchor
-    if short_rate is not None:
-        mat_short = add_tenor(valuation, short_tenor)
-        t_short = (mat_short - valuation).days / 365.0
-        known[round(t_short, 6)] = short_rate
+    # Optional short-end anchors (3M, 6M simple interest rates as interpolation anchors)
+    for tenor, rate in (short_quotes or {}).items():
+        mat = add_tenor(valuation, tenor)
+        t = (mat - valuation).days / 365.0
+        known[round(t, 6)] = rate
 
     for tenor, rate in bond_quotes.items():
         mat = add_tenor(valuation, tenor)
@@ -130,12 +130,10 @@ class KRWKTBCurve(IRCurve):
     bond_quotes : dict
         KTB par yields keyed by tenor string (e.g. '1Y', '3Y', '10Y').
         Values are annual yields as decimals (e.g. 0.034 = 3.40%).
-    short_rate : float, optional
-        Short-end simple interest rate (e.g. 3M Treasury bill yield).
-        Used as an anchor for sub-6M discount factors. If None, the curve
-        starts at the shortest KTB tenor.
-    short_tenor : str
-        Tenor of the short_rate (default '3M').
+    short_rate_3m : float, optional
+        3M simple interest rate (단리, e.g. 3M Treasury bill yield).
+    short_rate_6m : float, optional
+        6M simple interest rate (단리, e.g. 6M Treasury bill yield).
     """
 
     DAY_COUNT = "ACT/365"
@@ -144,13 +142,13 @@ class KRWKTBCurve(IRCurve):
         self,
         valuation_date: date,
         bond_quotes: Dict[str, float],
-        short_rate: Optional[float] = None,
-        short_tenor: str = "3M",
+        short_rate_3m: Optional[float] = None,
+        short_rate_6m: Optional[float] = None,
     ):
         super().__init__(valuation_date, name="KRW_KTB")
         self._bond_quotes = bond_quotes
-        self._short_rate = short_rate
-        self._short_tenor = short_tenor
+        self._short_rate_3m = short_rate_3m
+        self._short_rate_6m = short_rate_6m
         self._bootstrap()
 
     # ------------------------------------------------------------------
@@ -162,22 +160,37 @@ class KRWKTBCurve(IRCurve):
 
         pillar_times: List[float] = []
         pillar_dfs: List[float] = []
+        simple_interest_times: List[float] = []
 
-        # 1) Short end: simple interest DF
-        if self._short_rate is not None:
-            mat = add_tenor(val, self._short_tenor)
-            t = (mat - val).days / 365.0
-            df = 1.0 / (1.0 + self._short_rate * t)
-            pillar_times.append(t)
-            pillar_dfs.append(df)
+        # 1) Short end: simple interest DFs (단리) — 3M then 6M
+        for tenor, rate in [("3M", self._short_rate_3m), ("6M", self._short_rate_6m)]:
+            if rate is not None:
+                mat = add_tenor(val, tenor)
+                t = (mat - val).days / 365.0
+                df = 1.0 / (1.0 + rate * t)
+                pillar_times.append(t)
+                pillar_dfs.append(df)
+                simple_interest_times.append(t)
+
+        if pillar_times:
             self._set_pillars(pillar_times.copy(), pillar_dfs.copy())
 
         # 2) Semi-annual coupon bond bootstrap
+        short_quotes: Dict[str, float] = {}
+        if self._short_rate_3m is not None:
+            short_quotes["3M"] = self._short_rate_3m
+        if self._short_rate_6m is not None:
+            short_quotes["6M"] = self._short_rate_6m
+
         semiannual_pillars = _fill_semiannual_tenors(
-            self._bond_quotes, val, self._short_rate, self._short_tenor
+            self._bond_quotes, val, short_quotes or None
         )
 
         for mat, par_yield in semiannual_pillars:
+            t_check = (mat - val).days / 365.0
+            # Skip pillars already set as simple interest (e.g. 6M)
+            if any(abs(t_check - s) < 1e-4 for s in simple_interest_times):
+                continue
             schedule = _semiannual_schedule(val, mat)
 
             pv01_sum = 0.0

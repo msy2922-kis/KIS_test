@@ -15,7 +15,8 @@ from curves.krw_ktb_curve import KRWKTBCurve
 # ---------------------------------------------------------------------------
 valuation = date(2024, 3, 19)
 
-short_rate = 0.0355   # 3M Treasury bill (simple interest)
+short_rate_3m = 0.0355   # 3M Treasury bill (단리, simple interest)
+short_rate_6m = 0.0350   # 6M Treasury bill (단리, simple interest)
 
 bond_quotes = {
     "1Y":  0.0345,
@@ -34,8 +35,8 @@ bond_quotes = {
 curve = KRWKTBCurve(
     valuation_date=valuation,
     bond_quotes=bond_quotes,
-    short_rate=short_rate,
-    short_tenor="3M",
+    short_rate_3m=short_rate_3m,
+    short_rate_6m=short_rate_6m,
 )
 
 print(f"\n{'='*60}")
