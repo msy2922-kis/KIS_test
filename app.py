@@ -15,6 +15,7 @@ from datetime import date
 
 from curves.usd_sofr_curve import USDSOFRCurve
 from curves.krw_cd_curve import KRWCDCurve
+from curves.krw_ktb_curve import KRWKTBCurve
 
 # ---------------------------------------------------------------------------
 # Page config
@@ -26,7 +27,7 @@ st.set_page_config(
 )
 
 st.title("📈 Interest Rate Curve Builder")
-st.caption("USD SOFR IRS / KRW CD IRS 커브 부트스트래핑 도구")
+st.caption("USD SOFR IRS / KRW CD IRS / KRW KTB 커브 부트스트래핑 도구")
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -79,7 +80,7 @@ def validation_df(curve, quotes_dict):
 # ---------------------------------------------------------------------------
 # Tabs
 # ---------------------------------------------------------------------------
-tab_usd, tab_krw = st.tabs(["🇺🇸 USD SOFR IRS", "🇰🇷 KRW CD IRS"])
+tab_usd, tab_krw, tab_ktb = st.tabs(["🇺🇸 USD SOFR IRS", "🇰🇷 KRW CD IRS", "🇰🇷 KRW KTB (국고채)"])
 
 # ===========================================================================
 # USD SOFR Tab
@@ -256,3 +257,88 @@ with tab_krw:
                 st.error(f"오류: {e}")
         else:
             st.info("왼쪽에서 시장 데이터를 입력하고 **Build** 버튼을 누르세요.")
+
+
+# ===========================================================================
+# KRW KTB Tab
+# ===========================================================================
+with tab_ktb:
+    col_in, col_out = st.columns([1, 2], gap="large")
+
+    with col_in:
+        st.subheader("Valuation Date")
+        ktb_val_date = st.date_input(
+            "기준일", value=date(2024, 3, 19), key="ktb_val_date"
+        )
+
+        st.subheader("단기 기준금리 (3M T-bill)")
+        ktb_short_rate = st.number_input(
+            "3M 단기채 금리 (%, 단리)",
+            value=3.55,
+            min_value=0.0,
+            max_value=50.0,
+            step=0.01,
+            format="%.4f",
+            key="ktb_short_rate",
+        )
+
+        st.subheader("국고채 수익률 (Par Yield)")
+        ktb_bond_default = pd.DataFrame({
+            "Tenor": ["1Y", "2Y", "3Y", "5Y", "10Y", "20Y", "30Y", "50Y"],
+            "Rate (%)": [3.45, 3.35, 3.30, 3.35, 3.50, 3.60, 3.55, 3.45],
+        })
+        ktb_bond_input = st.data_editor(
+            ktb_bond_default,
+            use_container_width=True,
+            num_rows="dynamic",
+            key="ktb_bond_editor",
+            column_config={
+                "Tenor": st.column_config.TextColumn("Tenor", width="small"),
+                "Rate (%)": st.column_config.NumberColumn(
+                    "Rate (%)", format="%.4f", min_value=0.0, max_value=50.0, step=0.01
+                ),
+            },
+        )
+
+        build_ktb = st.button("🔨 Build KRW KTB Curve", type="primary", use_container_width=True)
+
+    with col_out:
+        if build_ktb:
+            try:
+                bond_quotes = dict(zip(ktb_bond_input["Tenor"], ktb_bond_input["Rate (%)"] / 100))
+
+                curve = KRWKTBCurve(
+                    valuation_date=ktb_val_date,
+                    bond_quotes=bond_quotes,
+                    short_rate=ktb_short_rate / 100,
+                    short_tenor="3M",
+                )
+
+                st.success(f"커브 빌드 완료: {curve}")
+
+                # Summary
+                tenors_yr = [3/12, 6/12, 1, 2, 3, 5, 7, 10, 15, 20, 30]
+                summary = curve.summary(tenors_yr)
+                st.subheader("Curve Summary")
+                st.dataframe(summary, use_container_width=True)
+
+                # Chart
+                st.plotly_chart(
+                    make_chart(tenors_yr, curve, "KRW KTB (국고채) Curve"),
+                    use_container_width=True,
+                )
+
+                # Validation
+                st.subheader("Validation (Implied vs Input)")
+                vdf = validation_df(curve, bond_quotes)
+                st.dataframe(
+                    vdf.style.background_gradient(
+                        subset=["Error (bps)"], cmap="RdYlGn_r", vmin=-0.5, vmax=0.5
+                    ),
+                    use_container_width=True,
+                )
+
+            except Exception as e:
+                st.error(f"오류: {e}")
+        else:
+            st.info("왼쪽에서 국고채 수익률을 입력하고 **Build** 버튼을 누르세요.")
