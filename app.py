@@ -37,6 +37,7 @@ def make_chart(tenors_yr, curve, title):
     """
     tenors_yr : 희소 테너 리스트 (Summary 테이블용 / 마커 위치)
     내부적으로 300pt 고밀도 그리드를 생성해 MC 2차 곡선을 부드럽게 표현.
+    Returns (fig, csv_df) — Plotly figure + CSV 다운로드용 DataFrame.
     """
     # ── 고밀도 그리드: 선(line) 용 ────────────────────────────────────
     t_min = max(tenors_yr[0], 1e-4)
@@ -46,6 +47,14 @@ def make_chart(tenors_yr, curve, title):
     zeros_d = [curve.zero_rate(t)[0] * 100        for t in t_dense]
     dfs_d   = [curve.discount_factor(t)[0]         for t in t_dense]
     fwds_d  = [curve.forward_rate(t, t + 0.25)[0] * 100 for t in t_dense]
+
+    # CSV 용 DataFrame
+    csv_df = pd.DataFrame({
+        "Tenor (years)": np.round(t_dense, 6),
+        "Zero Rate (%)": np.round(zeros_d, 8),
+        "Discount Factor": np.round(dfs_d, 10),
+        "3M Forward Rate (%)": np.round(fwds_d, 8),
+    })
 
     fig = go.Figure()
 
@@ -73,7 +82,7 @@ def make_chart(tenors_yr, curve, title):
         hovermode="x unified",
         height=420,
     )
-    return fig
+    return fig, csv_df
 
 
 def validation_df(curve, quotes_dict):
@@ -123,7 +132,7 @@ with tab_usd:
             column_config={
                 "Tenor": st.column_config.TextColumn("Tenor", width="small"),
                 "Rate (%)": st.column_config.NumberColumn(
-                    "Rate (%)", format="%.4f", min_value=0.0, max_value=50.0, step=0.01
+                    "Rate (%)", format="%.10g", min_value=0.0, max_value=50.0,
                 ),
             },
         )
@@ -141,7 +150,7 @@ with tab_usd:
             column_config={
                 "Tenor": st.column_config.TextColumn("Tenor", width="small"),
                 "Rate (%)": st.column_config.NumberColumn(
-                    "Rate (%)", format="%.4f", min_value=0.0, max_value=50.0, step=0.01
+                    "Rate (%)", format="%.10g", min_value=0.0, max_value=50.0,
                 ),
             },
         )
@@ -169,9 +178,15 @@ with tab_usd:
                 st.dataframe(summary, use_container_width=True)
 
                 # Chart
-                st.plotly_chart(
-                    make_chart(tenors_yr, curve, "USD SOFR IRS Curve"),
-                    use_container_width=True,
+                fig, csv_df = make_chart(tenors_yr, curve, "USD SOFR IRS Curve")
+                st.plotly_chart(fig, use_container_width=True)
+
+                st.download_button(
+                    label="📥 Download Curve CSV",
+                    data=csv_df.to_csv(index=False),
+                    file_name="usd_sofr_curve.csv",
+                    mime="text/csv",
+                    key="usd_csv_download",
                 )
 
                 # Validation
@@ -209,8 +224,7 @@ with tab_krw:
             value=3.68,
             min_value=0.0,
             max_value=50.0,
-            step=0.01,
-            format="%.4f",
+            format="%.10g",
             key="krw_cd_rate",
         )
 
@@ -227,7 +241,7 @@ with tab_krw:
             column_config={
                 "Tenor": st.column_config.TextColumn("Tenor", width="small"),
                 "Rate (%)": st.column_config.NumberColumn(
-                    "Rate (%)", format="%.4f", min_value=0.0, max_value=50.0, step=0.01
+                    "Rate (%)", format="%.10g", min_value=0.0, max_value=50.0,
                 ),
             },
         )
@@ -254,9 +268,15 @@ with tab_krw:
                 st.dataframe(summary, use_container_width=True)
 
                 # Chart
-                st.plotly_chart(
-                    make_chart(tenors_yr, curve, "KRW CD IRS Curve"),
-                    use_container_width=True,
+                fig, csv_df = make_chart(tenors_yr, curve, "KRW CD IRS Curve")
+                st.plotly_chart(fig, use_container_width=True)
+
+                st.download_button(
+                    label="📥 Download Curve CSV",
+                    data=csv_df.to_csv(index=False),
+                    file_name="krw_cd_curve.csv",
+                    mime="text/csv",
+                    key="krw_csv_download",
                 )
 
                 # Validation
@@ -293,8 +313,7 @@ with tab_ktb:
             value=3.55,
             min_value=0.0,
             max_value=50.0,
-            step=0.01,
-            format="%.4f",
+            format="%.10g",
             key="ktb_short_rate_3m",
         )
         ktb_short_rate_6m = st.number_input(
@@ -302,8 +321,7 @@ with tab_ktb:
             value=3.50,
             min_value=0.0,
             max_value=50.0,
-            step=0.01,
-            format="%.4f",
+            format="%.10g",
             key="ktb_short_rate_6m",
         )
 
@@ -320,7 +338,7 @@ with tab_ktb:
             column_config={
                 "Tenor": st.column_config.TextColumn("Tenor", width="small"),
                 "Rate (%)": st.column_config.NumberColumn(
-                    "Rate (%)", format="%.4f", min_value=0.0, max_value=50.0, step=0.01
+                    "Rate (%)", format="%.10g", min_value=0.0, max_value=50.0,
                 ),
             },
         )
@@ -355,9 +373,15 @@ with tab_ktb:
                 st.dataframe(summary, use_container_width=True)
 
                 # Chart
-                st.plotly_chart(
-                    make_chart(tenors_yr, curve, "KRW KTB (국고채) Curve"),
-                    use_container_width=True,
+                fig, csv_df = make_chart(tenors_yr, curve, "KRW KTB (국고채) Curve")
+                st.plotly_chart(fig, use_container_width=True)
+
+                st.download_button(
+                    label="📥 Download Curve CSV",
+                    data=csv_df.to_csv(index=False),
+                    file_name="krw_ktb_curve.csv",
+                    mime="text/csv",
+                    key="ktb_csv_download",
                 )
 
                 # Validation — 국고채 Par Yield 역산 (단기채는 단리로 부트스트랩되어 제외)
