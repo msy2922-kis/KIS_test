@@ -34,18 +34,60 @@ st.caption("USD SOFR IRS / KRW CD IRS / KRW KTB 커브 부트스트래핑 도구
 # ---------------------------------------------------------------------------
 
 def make_chart(tenors_yr, curve, title):
-    zeros = [curve.zero_rate(t)[0] * 100 for t in tenors_yr]
-    dfs   = [curve.discount_factor(t)[0] for t in tenors_yr]
-    fwds  = [curve.forward_rate(t, t + 0.25)[0] * 100 for t in tenors_yr]
+    """
+    tenors_yr : 희소 테너 리스트 (Summary 테이블용 / 마커 위치)
+    내부적으로 300pt 고밀도 그리드를 생성해 MC 2차 곡선을 부드럽게 표현.
+    """
+    # ── 고밀도 그리드: 선(line) 용 ────────────────────────────────────
+    t_min = max(tenors_yr[0], 1e-4)
+    t_max = tenors_yr[-1]
+    t_dense = np.linspace(t_min, t_max, 300)
+
+    zeros_d = [curve.zero_rate(t)[0] * 100        for t in t_dense]
+    dfs_d   = [curve.discount_factor(t)[0]         for t in t_dense]
+    fwds_d  = [curve.forward_rate(t, t + 0.25)[0] * 100 for t in t_dense]
+
+    # ── 희소 그리드: 마커(marker) 용 ──────────────────────────────────
+    zeros_s = [curve.zero_rate(t)[0] * 100        for t in tenors_yr]
+    dfs_s   = [curve.discount_factor(t)[0]         for t in tenors_yr]
+    fwds_s  = [curve.forward_rate(t, t + 0.25)[0] * 100 for t in tenors_yr]
 
     fig = go.Figure()
-    fig.add_trace(go.Scatter(x=tenors_yr, y=zeros, mode="lines+markers",
-                             name="Zero Rate (%)", line=dict(color="#1f77b4")))
-    fig.add_trace(go.Scatter(x=tenors_yr, y=fwds,  mode="lines+markers",
-                             name="3M Fwd Rate (%)", line=dict(color="#ff7f0e", dash="dash")))
-    fig.add_trace(go.Scatter(x=tenors_yr, y=dfs,   mode="lines+markers",
-                             name="Discount Factor", line=dict(color="#2ca02c"),
-                             yaxis="y2"))
+
+    # Zero Rate — 부드러운 선 + 테너 마커
+    fig.add_trace(go.Scatter(
+        x=t_dense, y=zeros_d, mode="lines",
+        name="Zero Rate (%)", line=dict(color="#1f77b4", width=2),
+    ))
+    fig.add_trace(go.Scatter(
+        x=tenors_yr, y=zeros_s, mode="markers",
+        name="Zero Rate (pillar)", showlegend=False,
+        marker=dict(color="#1f77b4", size=6, symbol="circle"),
+    ))
+
+    # 3M Fwd Rate — 부드러운 선 + 테너 마커
+    fig.add_trace(go.Scatter(
+        x=t_dense, y=fwds_d, mode="lines",
+        name="3M Fwd Rate (%)", line=dict(color="#ff7f0e", width=2, dash="dash"),
+    ))
+    fig.add_trace(go.Scatter(
+        x=tenors_yr, y=fwds_s, mode="markers",
+        name="3M Fwd Rate (pillar)", showlegend=False,
+        marker=dict(color="#ff7f0e", size=6, symbol="diamond"),
+    ))
+
+    # Discount Factor — 부드러운 선 + 테너 마커 (우축)
+    fig.add_trace(go.Scatter(
+        x=t_dense, y=dfs_d, mode="lines",
+        name="Discount Factor", line=dict(color="#2ca02c", width=2),
+        yaxis="y2",
+    ))
+    fig.add_trace(go.Scatter(
+        x=tenors_yr, y=dfs_s, mode="markers",
+        name="Discount Factor (pillar)", showlegend=False,
+        marker=dict(color="#2ca02c", size=6, symbol="square"),
+        yaxis="y2",
+    ))
 
     fig.update_layout(
         title=title,
