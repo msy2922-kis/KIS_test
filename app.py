@@ -74,7 +74,6 @@ color_scheme = st.sidebar.selectbox(
 )
 n_display_paths = st.sidebar.slider("Display Paths (rate chart)", 5, 100, 30, 5)
 show_wireframe = st.sidebar.checkbox("Wireframe overlay", value=True)
-show_particles = st.sidebar.checkbox("Particle effects", value=True)
 auto_rotate = st.sidebar.checkbox("Auto-rotate", value=True)
 
 # Initial curve source (Hull-White / Ho-Lee 전용)
@@ -786,7 +785,7 @@ window.addEventListener('resize', () => {{
 config = {
     "color_scheme": color_scheme,
     "show_wireframe": show_wireframe,
-    "show_particles": show_particles,
+    "show_particles": False,
     "auto_rotate": auto_rotate,
 }
 
