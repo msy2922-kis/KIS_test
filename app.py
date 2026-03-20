@@ -104,15 +104,17 @@ def run_simulation(mdl_name, r0_val, sigma_val, kappa_val, theta_val, T, n_paths
     for ti_idx, t_val in enumerate(t_grid):
         sim_idx = int(t_val / T * n_steps)
         sim_idx = min(sim_idx, n_steps - 1)
-        r_t = mean_path[sim_idx]
+        r_t_paths = paths[:, sim_idx]          # shape (n_paths,) — 전 경로의 r_t
 
         for tau_val in tau_grid:
             T_mat = t_val + tau_val
             if hasattr(mdl, 'bond_price_analytical'):
-                price = mdl.bond_price_analytical(r_t, t_val, T_mat)
+                # 각 경로별 P(t,T|r_t^(i)) 계산 후 평균 → E_Q[P(t,T)]
+                prices = mdl.bond_price_analytical(r_t_paths, t_val, T_mat)
             else:
-                price = np.exp(-r_t * tau_val)
+                prices = np.exp(-r_t_paths * tau_val)
 
+            price = float(np.mean(prices))
             price = max(price, 1e-10)
             y = -np.log(price) / tau_val
             surface_t.append(float(t_val))
