@@ -73,8 +73,8 @@ color_scheme = st.sidebar.selectbox(
     index=0,
 )
 n_display_paths = st.sidebar.slider("Display Paths (rate chart)", 5, 100, 30, 5)
-show_wireframe = st.sidebar.checkbox("Wireframe overlay", value=True)
-auto_rotate = st.sidebar.checkbox("Auto-rotate", value=True)
+show_wireframe = st.sidebar.checkbox("Wireframe overlay", value=False)
+auto_rotate = st.sidebar.checkbox("Auto-rotate", value=False)
 
 # Initial curve source (Hull-White / Ho-Lee 전용)
 if model_name in ("Hull-White", "Ho-Lee"):
