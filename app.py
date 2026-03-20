@@ -676,56 +676,83 @@ with tab_hw:
                 st.divider()
                 st.subheader("3. 파라미터 민감도 (κ-σ 목적함수)")
 
-                with st.spinner("등고선 계산 중..."):
-                    k_opt, s_opt = cal_result["kappa"], cal_result["sigma"]
-                    k_range = np.linspace(max(1e-4, k_opt * 0.3), min(2.0, k_opt * 3.0), 20)
-                    s_range = np.linspace(max(1e-4, s_opt * 0.3), min(0.1, s_opt * 3.0), 20)
-                    Z = np.zeros((len(s_range), len(k_range)))
-
-                    for i, s_val in enumerate(s_range):
-                        for j, k_val in enumerate(k_range):
-                            calibrator.kappa = k_val
-                            calibrator.sigma = s_val
-                            calibrator._build_model()
-                            sse = 0.0
-                            for inst in market_instruments:
-                                try:
-                                    mv = calibrator.swaption_normal_vol(
-                                        inst["expiry"], inst["tenor"])
-                                    if not np.isnan(mv):
-                                        sse += (mv - inst["market_vol"]) ** 2
-                                    else:
-                                        sse += 1.0
-                                except Exception:
-                                    sse += 1.0
-                            Z[i, j] = np.sqrt(sse / len(market_instruments)) * 10000
-
-                    # 최적 파라미터 복원
-                    calibrator.kappa = k_opt
-                    calibrator.sigma = s_opt
-                    calibrator._build_model()
-
-                fig_contour = go.Figure()
-                fig_contour.add_trace(go.Contour(
-                    x=k_range, y=s_range, z=Z,
-                    colorscale="Viridis", reversescale=True,
-                    contours=dict(showlabels=True, labelfont=dict(size=10)),
-                    colorbar=dict(title="RMSE (bps)"),
-                ))
-                fig_contour.add_trace(go.Scatter(
-                    x=[k_opt], y=[s_opt], mode="markers+text",
-                    marker=dict(size=14, color="red", symbol="star"),
-                    text=["Optimal"], textposition="top center",
-                    textfont=dict(color="red", size=12),
-                    name="Optimal",
-                ))
-                fig_contour.update_layout(
-                    title="목적함수 등고선 (RMSE bps)",
-                    xaxis_title="κ (Mean Reversion)",
-                    yaxis_title="σ (Volatility)",
-                    height=450,
+                show_contour = st.checkbox(
+                    "등고선 계산 실행 (12×12 그리드, ~30초 소요)",
+                    value=False, key="hw_show_contour",
                 )
-                st.plotly_chart(fig_contour, use_container_width=True)
+
+                if show_contour:
+                    with st.spinner("등고선 계산 중..."):
+                        k_opt, s_opt = cal_result["kappa"], cal_result["sigma"]
+
+                        # 최적점에서의 시장 가격 사전 계산 (비교 기준)
+                        market_prices = []
+                        for inst in market_instruments:
+                            T0 = inst["expiry"]
+                            tenor = inst["tenor"]
+                            K = inst.get("strike")
+                            if K == "atm" or K is None:
+                                K = calibrator._par_swap_rate_from_curve(T0, tenor, 0.5)
+                            # Bachelier 공식으로 시장 가격 계산
+                            n_pay = max(1, int(round(tenor / 0.5)))
+                            annuity = sum(
+                                0.5 * calibrator._P0(T0 + (i + 1) * 0.5)
+                                for i in range(n_pay)
+                            )
+                            mkt_vol = inst["market_vol"]
+                            from scipy.stats import norm as norm_dist
+                            mkt_price = annuity * mkt_vol * np.sqrt(T0) * norm_dist.pdf(0)
+                            market_prices.append({"T0": T0, "tenor": tenor, "K": K,
+                                                  "price": mkt_price})
+
+                        n_grid = 12
+                        k_range = np.linspace(max(1e-4, k_opt * 0.3), min(2.0, k_opt * 3.0), n_grid)
+                        s_range = np.linspace(max(1e-4, s_opt * 0.3), min(0.1, s_opt * 3.0), n_grid)
+                        Z = np.zeros((n_grid, n_grid))
+
+                        for i, s_val in enumerate(s_range):
+                            for j, k_val in enumerate(k_range):
+                                calibrator.kappa = k_val
+                                calibrator.sigma = s_val
+                                calibrator._build_model()
+                                sse = 0.0
+                                for mp in market_prices:
+                                    try:
+                                        model_px = calibrator.swaption_price(
+                                            mp["T0"], mp["tenor"], mp["K"], 0.5, "payer")
+                                        sse += (model_px - mp["price"]) ** 2
+                                    except Exception:
+                                        sse += 1.0
+                                Z[i, j] = np.sqrt(sse / len(market_prices)) * 10000
+
+                        # 최적 파라미터 복원
+                        calibrator.kappa = k_opt
+                        calibrator.sigma = s_opt
+                        calibrator._build_model()
+
+                    fig_contour = go.Figure()
+                    fig_contour.add_trace(go.Contour(
+                        x=k_range, y=s_range, z=Z,
+                        colorscale="Viridis", reversescale=True,
+                        contours=dict(showlabels=True, labelfont=dict(size=10)),
+                        colorbar=dict(title="RMSE (price bps)"),
+                    ))
+                    fig_contour.add_trace(go.Scatter(
+                        x=[k_opt], y=[s_opt], mode="markers+text",
+                        marker=dict(size=14, color="red", symbol="star"),
+                        text=["Optimal"], textposition="top center",
+                        textfont=dict(color="red", size=12),
+                        name="Optimal",
+                    ))
+                    fig_contour.update_layout(
+                        title="목적함수 등고선 (RMSE)",
+                        xaxis_title="κ (Mean Reversion)",
+                        yaxis_title="σ (Volatility)",
+                        height=450,
+                    )
+                    st.plotly_chart(fig_contour, use_container_width=True)
+                else:
+                    st.info("체크박스를 선택하면 κ-σ 등고선을 계산합니다.")
 
                 # ── 5. 파생상품 가격 계산기 ──────────────────────────
                 st.divider()
