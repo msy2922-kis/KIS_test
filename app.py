@@ -480,56 +480,59 @@ function tick(center, perpDir, color) {{
   scene.add(new THREE.Line(geo, new THREE.LineBasicMaterial({{ color, transparent: true, opacity: 0.85 }})));
 }}
 
-// ═══ TIME AXIS (X direction) — front edge, z = Z_MAX + 2 ═══════════════════
-const tAZ = Z_MAX + 2.0, tAY = FLOOR_Y;
+// ── axes origin at tau=0 (Maturity 0y) ──
+const zTau0 = ((0 - tauMin) / (tauMax - tauMin || 1) - 0.5) * scaleZ;
+const OX = X_MIN - 2.0;   // shared x offset for left-side axes
+const OZ = zTau0 - 2.0;   // shared z offset at tau=0
+
+// ═══ TIME AXIS (X direction) — at tau=0 edge ════════════════════════════════
 axisLine(
-  new THREE.Vector3(X_MIN - 0.5, tAY, tAZ),
-  new THREE.Vector3(X_MAX + 1.0, tAY, tAZ), C_TIME);
-axisCone(new THREE.Vector3(X_MAX + 1.8, tAY, tAZ), new THREE.Vector3(1,0,0), C_TIME);
+  new THREE.Vector3(OX, FLOOR_Y, OZ),
+  new THREE.Vector3(X_MAX + 1.0, FLOOR_Y, OZ), C_TIME);
+axisCone(new THREE.Vector3(X_MAX + 1.8, FLOOR_Y, OZ), new THREE.Vector3(1,0,0), C_TIME);
 for (let i = 0; i <= 5; i++) {{
   const f = i / 5;
   const xp = X_MIN + f * scaleX;
   const tv = (tMin + f * (tMax - tMin)).toFixed(1);
-  tick(new THREE.Vector3(xp, tAY, tAZ), new THREE.Vector3(0,0,1), C_TIME);
-  makeLabel(tv + 'y', new THREE.Vector3(xp, tAY - 0.9, tAZ + 2.2), C_TIME, 0.72);
+  tick(new THREE.Vector3(xp, FLOOR_Y, OZ), new THREE.Vector3(0,0,-1), C_TIME);
+  makeLabel(tv + 'y', new THREE.Vector3(xp, FLOOR_Y - 0.9, OZ - 2.2), C_TIME, 0.72);
 }}
-makeLabel('Time  t  (yr)', new THREE.Vector3(0, tAY - 0.7, tAZ + 5.0), C_TIME, 1.1);
+makeLabel('Time  t  (yr)', new THREE.Vector3(0, FLOOR_Y - 0.7, OZ - 5.0), C_TIME, 1.1);
 
-// ═══ MATURITY AXIS (Z direction) — left edge, x = X_MIN - 2 ════════════════
-const mAX = X_MIN - 2.0, mAY = FLOOR_Y;
+// ═══ MATURITY AXIS (Z direction) — from tau=0 toward tauMax ═════════════════
 axisLine(
-  new THREE.Vector3(mAX, mAY, Z_MIN - 0.5),
-  new THREE.Vector3(mAX, mAY, Z_MAX + 1.0), C_MAT);
-axisCone(new THREE.Vector3(mAX, mAY, Z_MAX + 1.8), new THREE.Vector3(0,0,1), C_MAT);
+  new THREE.Vector3(OX, FLOOR_Y, OZ),
+  new THREE.Vector3(OX, FLOOR_Y, Z_MAX + 1.0), C_MAT);
+axisCone(new THREE.Vector3(OX, FLOOR_Y, Z_MAX + 1.8), new THREE.Vector3(0,0,1), C_MAT);
 for (let i = 0; i <= 5; i++) {{
-  const f = i / 5;
-  const zp = Z_MIN + f * scaleZ;
-  const tv = (tauMin + f * (tauMax - tauMin)).toFixed(0);
-  tick(new THREE.Vector3(mAX, mAY, zp), new THREE.Vector3(-1,0,0), C_MAT);
-  makeLabel(tv + 'y', new THREE.Vector3(mAX - 2.4, mAY - 0.9, zp), C_MAT, 0.72);
+  const tauVal = tauMax * i / 5;
+  const zp = tauVal <= 0
+    ? OZ
+    : ((tauVal - tauMin) / (tauMax - tauMin || 1) - 0.5) * scaleZ;
+  tick(new THREE.Vector3(OX, FLOOR_Y, zp), new THREE.Vector3(-1,0,0), C_MAT);
+  makeLabel(Math.round(tauVal) + 'y', new THREE.Vector3(OX - 2.4, FLOOR_Y - 0.9, zp), C_MAT, 0.72);
 }}
-makeLabel('Maturity  τ  (yr)', new THREE.Vector3(mAX - 5.2, mAY - 0.5, 0), C_MAT, 1.1);
+makeLabel('Maturity  τ  (yr)', new THREE.Vector3(OX - 5.2, FLOOR_Y - 0.5, (Z_MIN + Z_MAX) / 2), C_MAT, 1.1);
 
-// ═══ YIELD AXIS (Y direction) — front-left corner ═══════════════════════════
-const yAX = X_MIN - 2.0, yAZ = Z_MAX + 2.0;
+// ═══ YIELD AXIS (Y direction) — at tau=0, t=0 corner ════════════════════════
 axisLine(
-  new THREE.Vector3(yAX, FLOOR_Y, yAZ),
-  new THREE.Vector3(yAX, scaleY + 1.2, yAZ), C_YIELD);
-axisCone(new THREE.Vector3(yAX, scaleY + 2.1, yAZ), new THREE.Vector3(0,1,0), C_YIELD);
+  new THREE.Vector3(OX, FLOOR_Y, OZ),
+  new THREE.Vector3(OX, scaleY + 1.2, OZ), C_YIELD);
+axisCone(new THREE.Vector3(OX, scaleY + 2.1, OZ), new THREE.Vector3(0,1,0), C_YIELD);
 for (let i = 0; i <= 5; i++) {{
   const f = i / 5;
   const yp = f * scaleY;
   const yv = (yMin + f * yRange).toFixed(2);
-  tick(new THREE.Vector3(yAX, yp, yAZ), new THREE.Vector3(-1,0,1).normalize(), C_YIELD);
-  makeLabel(yv + '%', new THREE.Vector3(yAX - 3.2, yp, yAZ + 0.8), C_YIELD, 0.72);
+  tick(new THREE.Vector3(OX, yp, OZ), new THREE.Vector3(0,0,-1), C_YIELD);
+  makeLabel(yv + '%', new THREE.Vector3(OX - 0.5, yp, OZ - 2.8), C_YIELD, 0.72);
 }}
-makeLabel('Yield  (%)', new THREE.Vector3(yAX - 4.0, scaleY * 0.5, yAZ + 3.0), C_YIELD, 1.1);
+makeLabel('Yield  (%)', new THREE.Vector3(OX - 0.5, scaleY * 0.5, OZ - 5.5), C_YIELD, 1.1);
 
-// ── corner dot at axes origin ──
-const dotGeo = new THREE.SphereGeometry(0.4, 10, 10);
+// ── corner dot at axes origin (tau=0, t=0) ──
+const dotGeo = new THREE.SphereGeometry(0.45, 12, 12);
 const dotMat = new THREE.MeshBasicMaterial({{ color: 0xffffff }});
 const dotMesh = new THREE.Mesh(dotGeo, dotMat);
-dotMesh.position.set(yAX, FLOOR_Y, yAZ);
+dotMesh.position.set(OX, FLOOR_Y, OZ);
 scene.add(dotMesh);
 
 // ── RAYCASTER FOR TOOLTIP ──
