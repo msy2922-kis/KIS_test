@@ -14,6 +14,18 @@ from abc import ABC, abstractmethod
 import numpy as np
 
 
+def _make_fwd_from_ir_curve(curve):
+    """IRCurve 객체에서 순간선도금리 callable f^M(0,t) 을 생성한다."""
+    def fwd(t):
+        scalar = np.isscalar(t)
+        t_arr = np.atleast_1d(np.asarray(t, dtype=float))
+        t_safe = np.maximum(t_arr, 1e-6)
+        # 연속복리 선도금리 f(t, t+ε) ≈ f^M(0,t)
+        result = curve.forward_rate(t_safe, t_safe + 1e-5, compounding="continuous")
+        return float(result[0]) if scalar else result
+    return fwd
+
+
 class ShortRateModel(ABC):
     """Abstract base class for short rate models."""
 
@@ -227,9 +239,19 @@ class HullWhiteModel(ShortRateModel):
         self.sigma = sigma
         self.r0 = r0
 
+        try:
+            from curves.base_curve import IRCurve as _IRCurve
+        except ImportError:
+            _IRCurve = type(None)
+
         if initial_curve is None:
+            self._ir_curve = None
             self._forward_rate = lambda t: r0
+        elif isinstance(initial_curve, _IRCurve):
+            self._ir_curve = initial_curve
+            self._forward_rate = _make_fwd_from_ir_curve(initial_curve)
         else:
+            self._ir_curve = None
             self._forward_rate = initial_curve
 
     @property
@@ -267,9 +289,12 @@ class HullWhiteModel(ShortRateModel):
         return r + drift + diffusion
 
     def _log_P0(self, t: float) -> float:
-        """ln P^M(0,t) = -∫₀ᵗ f(0,s) ds  (수치 적분)."""
+        """ln P^M(0,t).  IRCurve 제공 시 DF에서 직접 산출, 아니면 수치 적분."""
         if t <= 0.0:
             return 0.0
+        if self._ir_curve is not None:
+            df = float(self._ir_curve.discount_factor(np.atleast_1d(float(t)))[0])
+            return np.log(max(df, 1e-15))
         n = max(300, int(t * 150) + 1)
         s = np.linspace(0.0, t, n)
         return float(-np.trapezoid(self._forward_rate(s), s))
@@ -317,9 +342,19 @@ class HoLeeModel(ShortRateModel):
         self.sigma = sigma
         self.r0 = r0
 
+        try:
+            from curves.base_curve import IRCurve as _IRCurve
+        except ImportError:
+            _IRCurve = type(None)
+
         if initial_curve is None:
+            self._ir_curve = None
             self._forward_rate = lambda t: r0
+        elif isinstance(initial_curve, _IRCurve):
+            self._ir_curve = initial_curve
+            self._forward_rate = _make_fwd_from_ir_curve(initial_curve)
         else:
+            self._ir_curve = None
             self._forward_rate = initial_curve
 
     @property
@@ -340,9 +375,12 @@ class HoLeeModel(ShortRateModel):
         return r + self._theta(t) * dt + self.sigma * dW
 
     def _log_P0(self, t: float) -> float:
-        """ln P^M(0,t) = -∫₀ᵗ f(0,s) ds  (수치 적분)."""
+        """ln P^M(0,t).  IRCurve 제공 시 DF에서 직접 산출, 아니면 수치 적분."""
         if t <= 0.0:
             return 0.0
+        if self._ir_curve is not None:
+            df = float(self._ir_curve.discount_factor(np.atleast_1d(float(t)))[0])
+            return np.log(max(df, 1e-15))
         n = max(300, int(t * 150) + 1)
         s = np.linspace(0.0, t, n)
         return float(-np.trapezoid(self._forward_rate(s), s))

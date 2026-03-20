@@ -10,9 +10,16 @@ Usage:
 
 import json
 import numpy as np
+import pandas as pd
 import streamlit as st
+import plotly.graph_objects as go
+from datetime import date as date_type
+
 from short_rate_models import VasicekModel, CIRModel, HullWhiteModel, HoLeeModel
 from simulation import MonteCarloSimulator
+from curves.krw_ktb_curve import KRWKTBCurve
+from curves.krw_cd_curve import KRWCDCurve
+from curves.usd_sofr_curve import USDSOFRCurve
 
 
 # ── Page config ───────────────────────────────────────────────────────────────
@@ -70,25 +77,172 @@ show_wireframe = st.sidebar.checkbox("Wireframe overlay", value=True)
 show_particles = st.sidebar.checkbox("Particle effects", value=True)
 auto_rotate = st.sidebar.checkbox("Auto-rotate", value=True)
 
+# Initial curve source (Hull-White / Ho-Lee 전용)
+if model_name in ("Hull-White", "Ho-Lee"):
+    st.sidebar.markdown("---")
+    st.sidebar.subheader("Initial Yield Curve")
+    curve_source = st.sidebar.selectbox(
+        "Curve Source",
+        ["Parametric", "KRW KTB (국고채)", "KRW CD IRS", "USD SOFR IRS"],
+        index=0,
+        key="curve_source",
+    )
+    val_date = st.sidebar.date_input(
+        "Valuation Date", value=date_type(2024, 3, 19), key="val_date"
+    )
+else:
+    curve_source = "Parametric"
+    val_date = date_type(2024, 3, 19)
+
+
+# ── Curve Builder ─────────────────────────────────────────────────────────────
+def build_initial_curve(curve_source, val_date):
+    """
+    커브 빌더 UI를 렌더링하고 (IRCurve, r0) 또는 (None, None) 을 반환한다.
+    Parametric 이 아닐 때만 호출된다.
+    """
+    _NUM_COL = dict(format="%.10g", min_value=0.0, max_value=50.0)
+    _TENOR_COL = st.column_config.TextColumn("Tenor", width="small")
+
+    with st.expander(f"📈 Initial Yield Curve — {curve_source}", expanded=True):
+        col_in, col_chart = st.columns([1, 2], gap="large")
+        curve = None
+
+        # ── 입력 테이블 ─────────────────────────────────────────────────
+        with col_in:
+            if curve_source == "KRW KTB (국고채)":
+                st.markdown("**Short End (단리)**")
+                c1, c2 = st.columns(2)
+                sr3m = c1.number_input("3M (%)", value=3.20, format="%.4f", key="ktb_3m") / 100
+                sr6m = c2.number_input("6M (%)", value=3.25, format="%.4f", key="ktb_6m") / 100
+                st.markdown("**Bond Quotes (반기 쿠폰)**")
+                df_in = st.data_editor(
+                    pd.DataFrame({"Tenor": ["1Y","2Y","3Y","5Y","7Y","10Y","20Y","30Y"],
+                                  "Rate (%)": [3.30,3.35,3.40,3.45,3.48,3.50,3.48,3.45]}),
+                    use_container_width=True, num_rows="dynamic", key="ktb_quotes",
+                    column_config={"Tenor": _TENOR_COL,
+                                   "Rate (%)": st.column_config.NumberColumn("Rate (%)", **_NUM_COL)},
+                )
+                try:
+                    bq = {r["Tenor"]: r["Rate (%)"] / 100
+                          for _, r in df_in.iterrows() if r["Tenor"]}
+                    curve = KRWKTBCurve(val_date, bq, short_rate_3m=sr3m, short_rate_6m=sr6m)
+                except Exception as e:
+                    st.error(f"빌딩 오류: {e}")
+
+            elif curve_source == "KRW CD IRS":
+                st.markdown("**CD 91-day Rate**")
+                cd_rate = st.number_input("CD Rate (%)", value=3.50, format="%.4f", key="cd_rate") / 100
+                st.markdown("**IRS Fixed Quotes**")
+                df_in = st.data_editor(
+                    pd.DataFrame({"Tenor": ["6M","1Y","2Y","3Y","5Y","7Y","10Y"],
+                                  "Rate (%)": [3.45,3.40,3.35,3.35,3.40,3.43,3.45]}),
+                    use_container_width=True, num_rows="dynamic", key="cd_quotes",
+                    column_config={"Tenor": _TENOR_COL,
+                                   "Rate (%)": st.column_config.NumberColumn("Rate (%)", **_NUM_COL)},
+                )
+                try:
+                    sq = {r["Tenor"]: r["Rate (%)"] / 100
+                          for _, r in df_in.iterrows() if r["Tenor"]}
+                    curve = KRWCDCurve(val_date, cd_rate, sq)
+                except Exception as e:
+                    st.error(f"빌딩 오류: {e}")
+
+            else:  # USD SOFR IRS
+                st.markdown("**OIS Quotes (≤1Y)**")
+                df_ois = st.data_editor(
+                    pd.DataFrame({"Tenor": ["1M","3M","6M","1Y"],
+                                  "Rate (%)": [5.31,5.33,5.27,5.02]}),
+                    use_container_width=True, num_rows="dynamic", key="sofr_ois",
+                    column_config={"Tenor": _TENOR_COL,
+                                   "Rate (%)": st.column_config.NumberColumn("Rate (%)", **_NUM_COL)},
+                )
+                st.markdown("**Swap Quotes (>1Y)**")
+                df_sw = st.data_editor(
+                    pd.DataFrame({"Tenor": ["2Y","3Y","5Y","7Y","10Y","20Y","30Y"],
+                                  "Rate (%)": [4.68,4.49,4.37,4.38,4.40,4.45,4.35]}),
+                    use_container_width=True, num_rows="dynamic", key="sofr_swaps",
+                    column_config={"Tenor": _TENOR_COL,
+                                   "Rate (%)": st.column_config.NumberColumn("Rate (%)", **_NUM_COL)},
+                )
+                try:
+                    oq = {r["Tenor"]: r["Rate (%)"] / 100 for _, r in df_ois.iterrows() if r["Tenor"]}
+                    sq = {r["Tenor"]: r["Rate (%)"] / 100 for _, r in df_sw.iterrows() if r["Tenor"]}
+                    curve = USDSOFRCurve(val_date, oq, sq)
+                except Exception as e:
+                    st.error(f"빌딩 오류: {e}")
+
+        # ── 커브 차트 & 요약 ────────────────────────────────────────────
+        if curve is not None:
+            t_max_disp = min(10.0, float(curve._times[-1]) * 0.95)
+            t_dense = np.linspace(0.05, t_max_disp, 300)
+            zeros_d = curve.zero_rate(t_dense) * 100
+            fwds_d  = curve.forward_rate(t_dense, t_dense + 0.25) * 100
+
+            with col_chart:
+                fig = go.Figure()
+                fig.add_trace(go.Scatter(
+                    x=t_dense, y=zeros_d, name="Zero Rate (%)",
+                    line=dict(color="#00aaff", width=2)))
+                fig.add_trace(go.Scatter(
+                    x=t_dense, y=fwds_d, name="3M Fwd Rate (%)",
+                    line=dict(color="#ff7700", width=2, dash="dash")))
+                fig.update_layout(
+                    height=260, margin=dict(l=10, r=10, t=10, b=30),
+                    xaxis_title="Tenor (yr)", yaxis_title="Rate (%)",
+                    legend=dict(x=0.55, y=0.98, bgcolor="rgba(0,0,0,0)"),
+                    paper_bgcolor="rgba(0,0,0,0)",
+                    plot_bgcolor="rgba(10,10,26,1)",
+                    font=dict(color="#aaaacc"),
+                    xaxis=dict(gridcolor="#222244"),
+                    yaxis=dict(gridcolor="#222244"),
+                )
+                st.plotly_chart(fig, use_container_width=True)
+
+            # 주요 테너 요약 테이블
+            key_t  = [t for t in [0.25, 0.5, 1, 2, 3, 5, 7, 10]
+                      if t <= float(curve._times[-1]) * 0.99]
+            labels = ["3M","6M","1Y","2Y","3Y","5Y","7Y","10Y"][:len(key_t)]
+            zr_key = curve.zero_rate(key_t) * 100
+            df_key = curve.discount_factor(key_t)
+            st.dataframe(
+                pd.DataFrame(
+                    {"Zero Rate (%)": np.round(zr_key, 4),
+                     "Discount Factor": np.round(df_key, 6)},
+                    index=labels,
+                ).T.style.format("{:.4f}"),
+                use_container_width=True,
+            )
+
+            # 초기 단기금리: t→0 순간선도금리
+            r0_curve = float(curve.forward_rate(
+                np.atleast_1d(1e-4), np.atleast_1d(1e-4 + 1e-5),
+                compounding="continuous")[0])
+            return curve, r0_curve
+
+    return None, None
+
 
 # ── Simulate ─────────────────────────────────────────────────────────────────
 def run_simulation(mdl_name, r0_val, sigma_val, kappa_val, theta_val, T, n_paths, seed,
-                   n_time_grid, n_maturity_grid, max_maturity):
+                   n_time_grid, n_maturity_grid, max_maturity, initial_curve=None):
     """Run simulation and compute yield surface data."""
 
-    # 우상향 초기 순간선도금리 곡선: f^M(0,t) = r0 + 0.008·(1 - e^{-t/2})
-    # t=0 → r0,  t→∞ → r0 + 80bp
+    # 파라메트릭 커브 (IRCurve 미제공 시 fallback): f^M(0,t) = r0 + 0.008·(1 - e^{-t/2})
     def fwd(t):
         return r0_val + 0.008 * (1.0 - np.exp(-t / 2.0))
+
+    # HW/HL: IRCurve 가 제공되면 사용, 아니면 파라메트릭 fwd 사용
+    curve_arg = initial_curve if initial_curve is not None else fwd
 
     if mdl_name == "Vasicek":
         mdl = VasicekModel(kappa=kappa_val, theta=theta_val, sigma=sigma_val, r0=r0_val)
     elif mdl_name == "CIR":
         mdl = CIRModel(kappa=kappa_val, theta=theta_val, sigma=sigma_val, r0=r0_val)
     elif mdl_name == "Hull-White":
-        mdl = HullWhiteModel(kappa=kappa_val, sigma=sigma_val, r0=r0_val, initial_curve=fwd)
+        mdl = HullWhiteModel(kappa=kappa_val, sigma=sigma_val, r0=r0_val, initial_curve=curve_arg)
     else:
-        mdl = HoLeeModel(sigma=sigma_val, r0=r0_val, initial_curve=fwd)
+        mdl = HoLeeModel(sigma=sigma_val, r0=r0_val, initial_curve=curve_arg)
 
     n_steps = int(T * 252)
     sim = MonteCarloSimulator(mdl, seed=seed)
@@ -149,12 +303,21 @@ def run_simulation(mdl_name, r0_val, sigma_val, kappa_val, theta_val, T, n_paths
 kappa_val = kappa if has_kappa else 0.3
 theta_val = theta if has_theta else r0
 
+# ── 초기 커브 빌더 (HW / Ho-Lee, Parametric 아닐 때) ─────────────────────────
+_initial_curve = None
+_r0_override   = None
+if model_name in ("Hull-White", "Ho-Lee") and curve_source != "Parametric":
+    _initial_curve, _r0_override = build_initial_curve(curve_source, val_date)
+
+r0_used = _r0_override if _r0_override is not None else r0
+
 # ── Session State: run simulation only on button click ────────────────────────
 if run_sim or "sim_data" not in st.session_state:
     with st.spinner("Simulating short rate paths..."):
         st.session_state["sim_data"] = run_simulation(
-            model_name, r0, sigma, kappa_val, theta_val,
+            model_name, r0_used, sigma, kappa_val, theta_val,
             T_sim, n_paths, seed, n_time_grid, n_maturity_grid, max_maturity,
+            initial_curve=_initial_curve,
         )
 
 data = st.session_state["sim_data"]
@@ -693,12 +856,18 @@ with st.expander("Model Details", expanded=False):
         st.latex(r"B(t,T) = \frac{1-e^{-\kappa(T-t)}}{\kappa},\quad "
                  r"A(t,T) = \ln\frac{P^M(0,T)}{P^M(0,t)} + B\,f^M(0,t) "
                  r"- \frac{\sigma^2}{4\kappa}(1-e^{-2\kappa t})\,B^2")
-        st.markdown(f"초기 순간선도금리: $f^M(0,t) = r_0 + 0.008\\,(1-e^{{-t/2}})$  "
-                    f"(t=0: {r0*100:.2f}% → t→∞: {(r0+0.008)*100:.2f}%)")
+        if curve_source != "Parametric" and _initial_curve is not None:
+            st.success(f"초기 커브: **{curve_source}** (부트스트랩, r₀ ≈ {r0_used*100:.3f}%)")
+        else:
+            st.markdown(f"초기 순간선도금리: $f^M(0,t) = r_0 + 0.008\\,(1-e^{{-t/2}})$  "
+                        f"(t=0: {r0*100:.2f}% → t→∞: {(r0+0.008)*100:.2f}%)")
     else:
         st.latex(r"dr_t = \theta(t)\,dt + \sigma\,dW_t")
         st.latex(r"P(t,T) = \exp\!\Bigl(A(t,T) - (T-t)\,r_t\Bigr)")
         st.latex(r"A(t,T) = \ln\frac{P^M(0,T)}{P^M(0,t)} + (T-t)\,f^M(0,t) "
                  r"- \frac{\sigma^2}{2}\,t\,(T-t)^2")
-        st.markdown(f"초기 순간선도금리: $f^M(0,t) = r_0 + 0.008\\,(1-e^{{-t/2}})$  "
-                    f"(t=0: {r0*100:.2f}% → t→∞: {(r0+0.008)*100:.2f}%)")
+        if curve_source != "Parametric" and _initial_curve is not None:
+            st.success(f"초기 커브: **{curve_source}** (부트스트랩, r₀ ≈ {r0_used*100:.3f}%)")
+        else:
+            st.markdown(f"초기 순간선도금리: $f^M(0,t) = r_0 + 0.008\\,(1-e^{{-t/2}})$  "
+                        f"(t=0: {r0*100:.2f}% → t→∞: {(r0+0.008)*100:.2f}%)")
