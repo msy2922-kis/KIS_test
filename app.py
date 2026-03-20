@@ -76,8 +76,10 @@ def run_simulation(mdl_name, r0_val, sigma_val, kappa_val, theta_val, T, n_paths
                    n_time_grid, n_maturity_grid, max_maturity):
     """Run simulation and compute yield surface data."""
 
+    # 우상향 초기 순간선도금리 곡선: f^M(0,t) = r0 + 0.008·(1 - e^{-t/2})
+    # t=0 → r0,  t→∞ → r0 + 80bp
     def fwd(t):
-        return r0_val + 0.008 * (1 - np.exp(-t / 2))
+        return r0_val + 0.008 * (1.0 - np.exp(-t / 2.0))
 
     if mdl_name == "Vasicek":
         mdl = VasicekModel(kappa=kappa_val, theta=theta_val, sigma=sigma_val, r0=r0_val)
@@ -687,7 +689,16 @@ with st.expander("Model Details", expanded=False):
         st.markdown(f"Feller condition: 2κθ = {feller:.4f} {'>' if feller > sigma**2 else '≤'} σ² = {sigma**2:.6f}")
     elif model_name == "Hull-White":
         st.latex(r"dr_t = [\theta(t) - \kappa r_t]\,dt + \sigma\,dW_t")
-        st.markdown("θ(t) is calibrated to fit the initial forward rate curve.")
+        st.latex(r"P(t,T) = \exp\!\Bigl(A(t,T) - B(t,T)\,r_t\Bigr)")
+        st.latex(r"B(t,T) = \frac{1-e^{-\kappa(T-t)}}{\kappa},\quad "
+                 r"A(t,T) = \ln\frac{P^M(0,T)}{P^M(0,t)} + B\,f^M(0,t) "
+                 r"- \frac{\sigma^2}{4\kappa}(1-e^{-2\kappa t})\,B^2")
+        st.markdown(f"초기 순간선도금리: $f^M(0,t) = r_0 + 0.008\\,(1-e^{{-t/2}})$  "
+                    f"(t=0: {r0*100:.2f}% → t→∞: {(r0+0.008)*100:.2f}%)")
     else:
         st.latex(r"dr_t = \theta(t)\,dt + \sigma\,dW_t")
-        st.markdown("θ(t) = ∂f(0,t)/∂t + σ²t — derived from the initial forward rate curve.")
+        st.latex(r"P(t,T) = \exp\!\Bigl(A(t,T) - (T-t)\,r_t\Bigr)")
+        st.latex(r"A(t,T) = \ln\frac{P^M(0,T)}{P^M(0,t)} + (T-t)\,f^M(0,t) "
+                 r"- \frac{\sigma^2}{2}\,t\,(T-t)^2")
+        st.markdown(f"초기 순간선도금리: $f^M(0,t) = r_0 + 0.008\\,(1-e^{{-t/2}})$  "
+                    f"(t=0: {r0*100:.2f}% → t→∞: {(r0+0.008)*100:.2f}%)")

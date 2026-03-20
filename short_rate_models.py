@@ -266,6 +266,30 @@ class HullWhiteModel(ShortRateModel):
         diffusion = self.sigma * dW
         return r + drift + diffusion
 
+    def _log_P0(self, t: float) -> float:
+        """ln P^M(0,t) = -∫₀ᵗ f(0,s) ds  (수치 적분)."""
+        if t <= 0.0:
+            return 0.0
+        n = max(300, int(t * 150) + 1)
+        s = np.linspace(0.0, t, n)
+        return float(-np.trapezoid(self._forward_rate(s), s))
+
+    def bond_price_analytical(self, r, t: float, T: float):
+        """
+        Hull-White 해석적 채권 가격  P(t, T) = exp(A(t,T) - B(t,T)·r_t)
+
+        B(t,T) = (1 - e^{-κτ}) / κ
+        A(t,T) = ln P^M(0,T) - ln P^M(0,t) + B·f^M(0,t)
+                 - σ²/(4κ) · (1 - e^{-2κt}) · B²
+        """
+        tau = T - t
+        B = (1.0 - np.exp(-self.kappa * tau)) / self.kappa
+        log_A = (self._log_P0(T) - self._log_P0(t)
+                 + B * self._forward_rate(t)
+                 - self.sigma ** 2 / (4.0 * self.kappa)
+                 * (1.0 - np.exp(-2.0 * self.kappa * t)) * B ** 2)
+        return np.exp(log_A - B * r)
+
 
 class HoLeeModel(ShortRateModel):
     """
@@ -314,3 +338,25 @@ class HoLeeModel(ShortRateModel):
     def step_at(self, r: np.ndarray, dt: float, dW: np.ndarray, t: float) -> np.ndarray:
         """Time-aware step."""
         return r + self._theta(t) * dt + self.sigma * dW
+
+    def _log_P0(self, t: float) -> float:
+        """ln P^M(0,t) = -∫₀ᵗ f(0,s) ds  (수치 적분)."""
+        if t <= 0.0:
+            return 0.0
+        n = max(300, int(t * 150) + 1)
+        s = np.linspace(0.0, t, n)
+        return float(-np.trapezoid(self._forward_rate(s), s))
+
+    def bond_price_analytical(self, r, t: float, T: float):
+        """
+        Ho-Lee 해석적 채권 가격  P(t, T) = exp(A(t,T) - (T-t)·r_t)
+
+        B(t,T) = T - t
+        A(t,T) = ln P^M(0,T) - ln P^M(0,t) + (T-t)·f^M(0,t)
+                 - σ²/2 · t · (T-t)²
+        """
+        tau = T - t
+        log_A = (self._log_P0(T) - self._log_P0(t)
+                 + tau * self._forward_rate(t)
+                 - self.sigma ** 2 / 2.0 * t * tau ** 2)
+        return np.exp(log_A - tau * r)
