@@ -54,8 +54,9 @@ n_time_grid = st.sidebar.slider("Time Grid (t steps)", 10, 80, 40, 5)
 n_maturity_grid = st.sidebar.slider("Maturity Grid (T steps)", 10, 80, 40, 5)
 max_maturity = st.sidebar.slider("Max Maturity τ (years)", 1.0, 30.0, 10.0, 1.0)
 n_paths = st.sidebar.slider("MC Paths (for simulation)", 200, 5000, 1000, 100)
-n_display_paths = st.sidebar.slider("Display Paths (rate chart)", 5, 100, 30, 5)
 seed = st.sidebar.number_input("Random Seed", value=42, step=1)
+
+run_sim = st.sidebar.button("▶ Run Simulation", type="primary", use_container_width=True)
 
 st.sidebar.markdown("---")
 st.sidebar.subheader("Visual Style")
@@ -64,6 +65,7 @@ color_scheme = st.sidebar.selectbox(
     ["Antigravity Neon", "Thermal", "Ocean", "Monochrome"],
     index=0,
 )
+n_display_paths = st.sidebar.slider("Display Paths (rate chart)", 5, 100, 30, 5)
 show_wireframe = st.sidebar.checkbox("Wireframe overlay", value=True)
 show_particles = st.sidebar.checkbox("Particle effects", value=True)
 auto_rotate = st.sidebar.checkbox("Auto-rotate", value=True)
@@ -170,10 +172,15 @@ def run_simulation(_model_name, _r0, _sigma, _kappa_val, _theta_val, _T, _n_path
 kappa_val = kappa if has_kappa else 0.3
 theta_val = theta if has_theta else r0
 
-data = run_simulation(
-    model_name, r0, sigma, kappa_val, theta_val,
-    T_sim, n_paths, seed, n_time_grid, n_maturity_grid, max_maturity,
-)
+# ── Session State: run simulation only on button click ────────────────────────
+if run_sim or "sim_data" not in st.session_state:
+    with st.spinner("Simulating short rate paths..."):
+        st.session_state["sim_data"] = run_simulation(
+            model_name, r0, sigma, kappa_val, theta_val,
+            T_sim, n_paths, seed, n_time_grid, n_maturity_grid, max_maturity,
+        )
+
+data = st.session_state["sim_data"]
 
 # ── Header ───────────────────────────────────────────────────────────────────
 st.markdown(f"""
