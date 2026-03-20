@@ -71,70 +71,46 @@ show_particles = st.sidebar.checkbox("Particle effects", value=True)
 auto_rotate = st.sidebar.checkbox("Auto-rotate", value=True)
 
 
-# ── Build Model ──────────────────────────────────────────────────────────────
-def initial_forward_rate(t):
-    return r0 + 0.008 * (1 - np.exp(-t / 2))
-
-
-if model_name == "Vasicek":
-    model = VasicekModel(kappa=kappa, theta=theta, sigma=sigma, r0=r0)
-elif model_name == "CIR":
-    model = CIRModel(kappa=kappa, theta=theta, sigma=sigma, r0=r0)
-elif model_name == "Hull-White":
-    model = HullWhiteModel(kappa=kappa, sigma=sigma, r0=r0,
-                           initial_curve=initial_forward_rate)
-else:
-    model = HoLeeModel(sigma=sigma, r0=r0, initial_curve=initial_forward_rate)
-
-
 # ── Simulate ─────────────────────────────────────────────────────────────────
-@st.cache_data(show_spinner="Simulating short rate paths...")
-def run_simulation(_model_name, _r0, _sigma, _kappa_val, _theta_val, _T, _n_paths, _seed,
-                   _n_time_grid, _n_maturity_grid, _max_maturity):
+def run_simulation(mdl_name, r0_val, sigma_val, kappa_val, theta_val, T, n_paths, seed,
+                   n_time_grid, n_maturity_grid, max_maturity):
     """Run simulation and compute yield surface data."""
 
-    # Rebuild model inside cached function
     def fwd(t):
-        return _r0 + 0.008 * (1 - np.exp(-t / 2))
+        return r0_val + 0.008 * (1 - np.exp(-t / 2))
 
-    if _model_name == "Vasicek":
-        mdl = VasicekModel(kappa=_kappa_val, theta=_theta_val, sigma=_sigma, r0=_r0)
-    elif _model_name == "CIR":
-        mdl = CIRModel(kappa=_kappa_val, theta=_theta_val, sigma=_sigma, r0=_r0)
-    elif _model_name == "Hull-White":
-        mdl = HullWhiteModel(kappa=_kappa_val, sigma=_sigma, r0=_r0, initial_curve=fwd)
+    if mdl_name == "Vasicek":
+        mdl = VasicekModel(kappa=kappa_val, theta=theta_val, sigma=sigma_val, r0=r0_val)
+    elif mdl_name == "CIR":
+        mdl = CIRModel(kappa=kappa_val, theta=theta_val, sigma=sigma_val, r0=r0_val)
+    elif mdl_name == "Hull-White":
+        mdl = HullWhiteModel(kappa=kappa_val, sigma=sigma_val, r0=r0_val, initial_curve=fwd)
     else:
-        mdl = HoLeeModel(sigma=_sigma, r0=_r0, initial_curve=fwd)
+        mdl = HoLeeModel(sigma=sigma_val, r0=r0_val, initial_curve=fwd)
 
-    # --- Step 1: Simulate short rate paths ---
-    n_steps = int(_T * 252)
-    sim = MonteCarloSimulator(mdl, seed=_seed)
-    times, paths = sim.simulate(T=_T, n_steps=n_steps, n_paths=_n_paths)
+    n_steps = int(T * 252)
+    sim = MonteCarloSimulator(mdl, seed=seed)
+    times, paths = sim.simulate(T=T, n_steps=n_steps, n_paths=n_paths)
 
-    # Mean path for zero curve computation
     mean_path = paths.mean(axis=0)
 
-    # --- Step 2: Compute yield surface Y(t, T) ---
-    t_grid = np.linspace(0, _T * 0.9, _n_time_grid)
-    tau_grid = np.linspace(0.1, _max_maturity, _n_maturity_grid)
+    t_grid = np.linspace(0, T * 0.9, n_time_grid)
+    tau_grid = np.linspace(0.1, max_maturity, n_maturity_grid)
 
     surface_t = []
     surface_tau = []
     surface_y = []
 
     for ti_idx, t_val in enumerate(t_grid):
-        # Find closest time index in simulation
-        sim_idx = int(t_val / _T * n_steps)
+        sim_idx = int(t_val / T * n_steps)
         sim_idx = min(sim_idx, n_steps - 1)
         r_t = mean_path[sim_idx]
 
         for tau_val in tau_grid:
             T_mat = t_val + tau_val
-            # Compute zero-coupon bond price analytically
             if hasattr(mdl, 'bond_price_analytical'):
                 price = mdl.bond_price_analytical(r_t, t_val, T_mat)
             else:
-                # Fallback: use Vasicek-like formula with flat rate approximation
                 price = np.exp(-r_t * tau_val)
 
             price = max(price, 1e-10)
@@ -143,22 +119,19 @@ def run_simulation(_model_name, _r0, _sigma, _kappa_val, _theta_val, _T, _n_path
             surface_tau.append(float(tau_val))
             surface_y.append(float(y))
 
-    # Paths for 2D chart (subsample)
-    path_indices = np.linspace(0, _n_paths - 1, min(200, _n_paths), dtype=int)
+    path_indices = np.linspace(0, n_paths - 1, min(200, n_paths), dtype=int)
     sampled_paths = paths[path_indices]
-
-    # Subsample time for paths chart
     time_indices = np.linspace(0, n_steps, min(500, n_steps + 1), dtype=int)
 
     return {
         "times": times[time_indices].tolist(),
-        "paths": (sampled_paths[:, time_indices] * 100).tolist(),  # in percent
+        "paths": (sampled_paths[:, time_indices] * 100).tolist(),
         "mean_path": (mean_path[time_indices] * 100).tolist(),
         "surface_t": surface_t,
         "surface_tau": surface_tau,
-        "surface_y": [v * 100 for v in surface_y],  # in percent
-        "n_t": _n_time_grid,
-        "n_tau": _n_maturity_grid,
+        "surface_y": [v * 100 for v in surface_y],
+        "n_t": n_time_grid,
+        "n_tau": n_maturity_grid,
         "stats": {
             "terminal_mean": float(paths[:, -1].mean() * 100),
             "terminal_std": float(paths[:, -1].std() * 100),
@@ -555,9 +528,9 @@ makeLabel('Yield  (%)', new THREE.Vector3(yAX - 4.0, scaleY * 0.5, yAZ + 3.0), C
 // ── corner dot at axes origin ──
 const dotGeo = new THREE.SphereGeometry(0.4, 10, 10);
 const dotMat = new THREE.MeshBasicMaterial({{ color: 0xffffff }});
-scene.add(Object.assign(new THREE.Mesh(dotGeo, dotMat), {{
-  position: new THREE.Vector3(yAX, FLOOR_Y, yAZ)
-}}));
+const dotMesh = new THREE.Mesh(dotGeo, dotMat);
+dotMesh.position.set(yAX, FLOOR_Y, yAZ);
+scene.add(dotMesh);
 
 // ── RAYCASTER FOR TOOLTIP ──
 const raycaster = new THREE.Raycaster();
