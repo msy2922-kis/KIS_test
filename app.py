@@ -565,7 +565,7 @@ const edgeMesh = new THREE.LineSegments(edgeGeo, edgeMat);
 scene.add(edgeMesh);
 
 // ── FLOATING PARTICLES ──
-{'const particleCount = ' + str(800 if show_particles else 0) + ';'}
+{'const particleCount = ' + str(800 if config['show_particles'] else 0) + ';'}
 const particleGeom = new THREE.BufferGeometry();
 const pPositions = new Float32Array(particleCount * 3);
 const pVelocities = new Float32Array(particleCount * 3);
