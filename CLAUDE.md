@@ -13,7 +13,12 @@
 - `utils/interpolation.py` — `monotone_convex_df()` (Hagan-West 2006). 커브 보간의 단일 진입점.
 - `utils/day_count.py` — `add_tenor()` (소수 연도 `1.5Y` 지원), `tenor_to_years()`, `dcf()`
 - `utils/market_loader.py` — Bloomberg 엑셀 파서. 시트 R5 라벨 → 표준 테너 정규화, 주말 필터.
-- `app.py` — Streamlit UI. 사이드바 엑셀 로더 → `market` 스냅샷 → 탭별 자동 주입.
+- `app.py` — Streamlit UI. 사이드바 엑셀 **업로드 전용** 로더 → `market` 스냅샷 → 탭별 자동 주입.
+
+### 데이터 정책 (중요)
+시장 데이터 엑셀은 **저작권(데이터 라이선스) 이슈로 레포에 커밋 금지**.
+`data/` 폴더는 .gitignore 처리되어 있으며, 사용자는 UI에서 그때그때 업로드한다.
+샘플 파일을 레포에 추가하자는 요청이 와도 이 정책을 먼저 상기시킬 것.
 
 ## 필수 규칙
 

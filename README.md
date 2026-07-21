@@ -33,10 +33,11 @@ streamlit run app.py
 
 ### 사용 방법
 
-1. **사이드바**: 저장소 샘플(`data/260721_Rates.xlsx`) 사용 또는 Bloomberg 엑셀 업로드
+1. **사이드바**: Bloomberg Rates 엑셀 업로드 (데이터 파일은 저작권 이슈로 레포에 포함하지 않음)
 2. **기준일 선택**: 영업일 목록에서 선택 → 3개 탭 입력 테이블 자동 주입
 3. **탭별 Build 버튼**: 커브 빌드 → Summary 테이블 / 차트 / Validation / CSV 다운로드
 4. 입력 테이블은 자동 주입 후에도 **직접 수정 가능** (행 추가·삭제 포함)
+5. 엑셀 없이도 각 탭에서 금리를 직접 입력해 커브를 빌드할 수 있음
 
 ### 예제 스크립트 (UI 없이 실행)
 
@@ -51,10 +52,8 @@ python examples/krw_ktb_validation.py    # 4대 검증 조건 수치 검증
 
 ```
 KIS_test/
-├── app.py                      # Streamlit UI (3개 탭 + 엑셀 로더 사이드바)
+├── app.py                      # Streamlit UI (3개 탭 + 엑셀 업로드 사이드바)
 ├── requirements.txt
-├── data/
-│   └── 260721_Rates.xlsx       # 샘플 시장 데이터 (Bloomberg export)
 ├── curves/
 │   ├── base_curve.py           # IRCurve 기반 클래스 (보간·densify·조회)
 │   ├── usd_sofr_curve.py       # USD SOFR IRS 부트스트래퍼
@@ -69,11 +68,15 @@ KIS_test/
     └── methodology.md          # 방법론 상세 문서
 ```
 
-## 데이터 형식
+## 데이터 형식 (업로드용 엑셀)
 
-`data/260721_Rates.xlsx` — Bloomberg 시계열 export 형식:
+> ⚠️ 시장 데이터 파일은 **저작권(데이터 라이선스) 이슈로 레포에 포함하지 않습니다.**
+> 실행 시 화면에서 직접 업로드하세요 (`data/` 폴더는 .gitignore 처리됨).
+
+Bloomberg 시계열 export 형식을 지원합니다:
+- 필수 시트: `SOFR IRS(BGN cut)`, `KRW Rates(IRS)`, `KRW Treasury`
 - R5: 테너 라벨 (`1y IRS`, `3m KTB`, `CD수익률` 등) / R6: Bloomberg 티커 / R9~: 일별 데이터
 - 주말 행은 금요일 값 carry-forward → 로더가 자동 제거
 - 금리 단위: % (예: 4.03 = 4.03%)
 
-같은 형식이면 다른 날짜의 엑셀도 그대로 업로드해 사용할 수 있습니다.
+같은 형식이면 어떤 날짜 범위의 엑셀도 업로드해 사용할 수 있습니다.

@@ -34,30 +34,17 @@ st.title("📈 Interest Rate Curve Builder")
 st.caption("USD SOFR IRS / KRW CD IRS / KRW KTB 커브 부트스트래핑 도구")
 
 # ---------------------------------------------------------------------------
-# Sidebar: Bloomberg Rates 엑셀 로더
+# Sidebar: Bloomberg Rates 엑셀 로더 (업로드 전용 — 데이터 파일은 레포에 저장하지 않음)
 # ---------------------------------------------------------------------------
-SAMPLE_XLSX = os.path.join(os.path.dirname(__file__), "data", "260721_Rates.xlsx")
-
-
 @st.cache_data(show_spinner="엑셀 로드 중...")
 def _load_from_bytes(file_bytes: bytes):
     import io
     return load_rates_workbook(io.BytesIO(file_bytes))
 
 
-@st.cache_data(show_spinner="엑셀 로드 중...")
-def _load_from_path(path: str, mtime: float):
-    return load_rates_workbook(path)
-
-
 st.sidebar.header("📂 시장 데이터")
 uploaded_xlsx = st.sidebar.file_uploader(
     "Bloomberg Rates 엑셀 업로드", type=["xlsx"], key="rates_uploader",
-)
-use_sample = st.sidebar.checkbox(
-    "저장소 샘플 사용 (260721_Rates.xlsx)",
-    value=os.path.exists(SAMPLE_XLSX),
-    disabled=uploaded_xlsx is not None,
 )
 
 market = None          # 선택된 기준일의 커브 입력 스냅샷
@@ -67,9 +54,6 @@ try:
     if uploaded_xlsx is not None:
         _data = _load_from_bytes(uploaded_xlsx.getvalue())
         _src = uploaded_xlsx.name
-    elif use_sample and os.path.exists(SAMPLE_XLSX):
-        _data = _load_from_path(SAMPLE_XLSX, os.path.getmtime(SAMPLE_XLSX))
-        _src = "260721_Rates.xlsx (sample)"
     else:
         _data = None
 
@@ -85,7 +69,7 @@ try:
         mkey = f"{_src}_{sel_date}"
         st.sidebar.success(f"✅ {_src}\n기준일 {sel_date} 로드 완료")
     else:
-        st.sidebar.info("엑셀을 업로드하거나 샘플을 선택하면\n시장 데이터가 자동 입력됩니다.")
+        st.sidebar.info("Bloomberg Rates 엑셀을 업로드하면\n시장 데이터가 자동 입력됩니다.")
 except Exception as e:
     st.sidebar.error(f"로드 실패: {e}")
 

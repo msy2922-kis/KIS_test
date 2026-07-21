@@ -83,7 +83,8 @@ Log-Linear DF(=구간별 선형 zero)는 구간 내 선도금리가 상수여서
 
 ## 6. 데이터 소스
 
-`data/260721_Rates.xlsx` — Bloomberg 시계열 export (2023-01-01 ~ 2026-07-21):
+Bloomberg 시계열 export 엑셀을 UI에서 업로드해 사용한다.
+(데이터 파일은 저작권 이슈로 레포에 포함하지 않음 — `data/`는 .gitignore 처리)
 
 | 시트 | 사용 | 내용 |
 |---|---|---|
