@@ -52,7 +52,8 @@ python examples/krw_ktb_validation.py
 ## 주의사항 (과거에 실제 발생한 이슈)
 
 - **테너 파싱**: `add_tenor()`는 `1.5Y`(→18M) 같은 소수 연도를 지원한다. 새 테너 형식 추가 시 `tenor_to_years()`도 함께 갱신.
-- **UI 차트**: `make_chart()`는 300pt 고밀도 그리드로 선을 그린다. 희소 테너로 직접 그리면 꺾임 발생 — 하지 말 것.
+- **UI 차트**: `curve_figure()`는 300pt 고밀도 그리드 + 2단 서브플롯(화이트 배경). 희소 테너로 직접 그리면 꺾임 발생 — 하지 말 것. 화이트 배경 유지를 위해 `st.plotly_chart(..., theme=None)` 필수.
+- **빌드 결과 보존**: 커브는 `st.session_state["curves"]`에 저장되어 rerun에도 유지. Build 시 입력 시그니처(`_sig`)도 함께 저장해 stale 입력 경고에 사용.
 - **Streamlit data_editor**: 자동 주입 데이터가 바뀌면 위젯 key도 바뀌어야 테이블이 갱신됨 (`key=f"..._{mkey}"` 패턴 유지).
 - **엑셀 데이터**: 주말 행은 carry-forward이므로 반드시 영업일 필터(`weekday < 5`) 적용.
 - **`_fill_*_tenors` 사전 보간**: quoted tenor 사이를 채우지 않으면 중간 지급일 flat-extrapolation으로 역산 오차 발생 (5Y+ 테너에서 수 bps).

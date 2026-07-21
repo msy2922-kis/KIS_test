@@ -1,8 +1,12 @@
 """
 Interest Rate Curve Builder – Streamlit UI
 ==========================================
-직접 입력을 통해 USD SOFR IRS / KRW CD IRS 커브를 빌드하고
+USD SOFR IRS / KRW CD IRS / KRW KTB 커브를 빌드하고
 Zero Rate, Discount Factor, Forward Rate를 시각화합니다.
+
+- 빌드 결과는 session_state에 보존되어 위젯 조작·탭 전환에도 유지됨
+- 차트는 화이트 배경(plotly_white) + 2단 서브플롯, theme=None으로 렌더
+- Compare 탭에서 커브 오버레이 및 IRS−KTB 스왑 스프레드 제공
 """
 import sys, os
 sys.path.insert(0, os.path.dirname(__file__))
@@ -11,6 +15,7 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 import plotly.graph_objects as go
+from plotly.subplots import make_subplots
 from datetime import date
 
 from curves.usd_sofr_curve import USDSOFRCurve
@@ -33,6 +38,14 @@ st.set_page_config(
 st.title("📈 Interest Rate Curve Builder")
 st.caption("USD SOFR IRS / KRW CD IRS / KRW KTB 커브 부트스트래핑 도구")
 
+# 차트 색상 (화이트 배경 기준)
+C_ZERO, C_FWD, C_DF = "#1f77b4", "#ff7f0e", "#2ca02c"
+CURVE_META = [
+    ("usd", "USD SOFR IRS", "#1f77b4"),
+    ("cd", "KRW CD IRS", "#d62728"),
+    ("ktb", "KRW KTB", "#2ca02c"),
+]
+
 # ---------------------------------------------------------------------------
 # Sidebar: 시장 금리 엑셀 로더 (업로드 전용 — 데이터 파일은 레포에 저장하지 않음)
 # ---------------------------------------------------------------------------
@@ -49,13 +62,12 @@ uploaded_xlsx = st.sidebar.file_uploader(
 
 market = None          # 선택된 기준일의 커브 입력 스냅샷
 mkey = "manual"        # 위젯 key 접미사 (데이터 소스·날짜 변경 시 입력 테이블 리셋)
+_data, _bdays = None, []
 
 try:
     if uploaded_xlsx is not None:
         _data = _load_from_bytes(uploaded_xlsx.getvalue())
         _src = uploaded_xlsx.name
-    else:
-        _data = None
 
     if _data:
         _bdays = get_business_dates(_data)
@@ -77,55 +89,64 @@ except Exception as e:
 # Helpers
 # ---------------------------------------------------------------------------
 
-def make_chart(tenors_yr, curve, title):
-    """
-    tenors_yr : 희소 테너 리스트 (Summary 테이블용 / 마커 위치)
-    내부적으로 300pt 고밀도 그리드를 생성해 MC 2차 곡선을 부드럽게 표현.
-    Returns (fig, csv_df) — Plotly figure + CSV 다운로드용 DataFrame.
-    """
-    # ── 고밀도 그리드: 선(line) 용 ────────────────────────────────────
-    t_min = max(tenors_yr[0], 1e-4)
-    t_max = tenors_yr[-1]
-    t_dense = np.linspace(t_min, t_max, 300)
+def white_layout(fig, title, height=560):
+    """화이트 배경 공통 스타일 (Streamlit 테마 오버라이드 방지: theme=None으로 렌더)."""
+    fig.update_layout(
+        template="plotly_white",
+        paper_bgcolor="white",
+        plot_bgcolor="white",
+        font=dict(color="#222222"),
+        title=dict(text=title, font=dict(size=16)),
+        hovermode="x unified",
+        height=height,
+        legend=dict(orientation="h", yanchor="bottom", y=1.01, xanchor="left", x=0),
+        margin=dict(l=60, r=30, t=70, b=40),
+    )
+    fig.update_xaxes(gridcolor="#e8e8e8", zerolinecolor="#cccccc", linecolor="#999999")
+    fig.update_yaxes(gridcolor="#e8e8e8", zerolinecolor="#cccccc", linecolor="#999999")
+    return fig
 
-    zeros_d = [curve.zero_rate(t)[0] * 100        for t in t_dense]
-    dfs_d   = [curve.discount_factor(t)[0]         for t in t_dense]
-    fwds_d  = [curve.forward_rate(t, t + 0.25)[0] * 100 for t in t_dense]
 
-    # CSV 용 DataFrame
+def curve_figure(curve, t_lo, t_hi, title):
+    """
+    2단 서브플롯: 상단 Zero + 3M Fwd (%), 하단 Discount Factor.
+    300pt 고밀도 그리드로 MC 곡선을 부드럽게 표현. Returns (fig, csv_df).
+    """
+    t_dense = np.linspace(max(t_lo, 1e-4), t_hi, 300)
+    zeros = [curve.zero_rate(t)[0] * 100 for t in t_dense]
+    dfs = [curve.discount_factor(t)[0] for t in t_dense]
+    fwds = [curve.forward_rate(t, t + 0.25)[0] * 100 for t in t_dense]
+
     csv_df = pd.DataFrame({
         "Tenor (years)": np.round(t_dense, 6),
-        "Zero Rate (%)": np.round(zeros_d, 8),
-        "Discount Factor": np.round(dfs_d, 10),
-        "3M Forward Rate (%)": np.round(fwds_d, 8),
+        "Zero Rate (%)": np.round(zeros, 8),
+        "Discount Factor": np.round(dfs, 10),
+        "3M Forward Rate (%)": np.round(fwds, 8),
     })
 
-    fig = go.Figure()
-
-    fig.add_trace(go.Scatter(
-        x=t_dense, y=zeros_d, mode="lines",
-        name="Zero Rate (%)", line=dict(color="#1f77b4", width=2),
-    ))
-    fig.add_trace(go.Scatter(
-        x=t_dense, y=fwds_d, mode="lines",
-        name="3M Fwd Rate (%)", line=dict(color="#ff7f0e", width=2, dash="dash"),
-    ))
-    fig.add_trace(go.Scatter(
-        x=t_dense, y=dfs_d, mode="lines",
-        name="Discount Factor", line=dict(color="#2ca02c", width=2),
-        yaxis="y2",
-    ))
-
-    fig.update_layout(
-        title=title,
-        xaxis=dict(title="Tenor (years)"),
-        yaxis=dict(title="Rate (%)", tickformat=".2f"),
-        yaxis2=dict(title="Discount Factor", overlaying="y", side="right",
-                    tickformat=".4f"),
-        legend=dict(x=0.6, y=0.95),
-        hovermode="x unified",
-        height=420,
+    fig = make_subplots(
+        rows=2, cols=1, shared_xaxes=True,
+        row_heights=[0.62, 0.38], vertical_spacing=0.08,
+        subplot_titles=("Zero Rate & 3M Forward (%)", "Discount Factor"),
     )
+    fig.add_trace(go.Scatter(
+        x=t_dense, y=zeros, mode="lines",
+        name="Zero Rate (%)", line=dict(color=C_ZERO, width=2.2),
+    ), row=1, col=1)
+    fig.add_trace(go.Scatter(
+        x=t_dense, y=fwds, mode="lines",
+        name="3M Fwd Rate (%)", line=dict(color=C_FWD, width=2, dash="dash"),
+    ), row=1, col=1)
+    fig.add_trace(go.Scatter(
+        x=t_dense, y=dfs, mode="lines",
+        name="Discount Factor", line=dict(color=C_DF, width=2),
+    ), row=2, col=1)
+
+    white_layout(fig, title)
+    fig.update_yaxes(tickformat=".2f", row=1, col=1)
+    fig.update_yaxes(tickformat=".4f", row=2, col=1)
+    fig.update_xaxes(title_text="Tenor (years)", row=2, col=1)
+    fig.update_xaxes(rangeslider=dict(visible=True, thickness=0.07), row=2, col=1)
     return fig, csv_df
 
 
@@ -146,10 +167,157 @@ def validation_df(curve, quotes_dict):
     return pd.DataFrame(rows)
 
 
+def kpi_cards(curve, prev_curve=None):
+    """주요 테너 Zero + 10Y−2Y 기울기 메트릭 카드. prev_curve가 있으면 전일 대비 Δbp 표시."""
+    t_max = float(curve._times[-1])
+    items = []
+    for t, lbl in [(0.25, "3M Zero"), (2.0, "2Y Zero"), (10.0, "10Y Zero"), (30.0, "30Y Zero")]:
+        if t <= t_max + 1e-9:
+            z = float(curve.zero_rate(t)[0]) * 100
+            delta = None
+            if prev_curve is not None:
+                delta = (z - float(prev_curve.zero_rate(t)[0]) * 100) * 100  # bp
+            items.append((lbl, f"{z:.4f}%", f"{delta:+.1f}bp" if delta is not None else None))
+    if 10.0 <= t_max + 1e-9:
+        slope = (float(curve.zero_rate(10.0)[0]) - float(curve.zero_rate(2.0)[0])) * 10_000
+        sdelta = None
+        if prev_curve is not None:
+            prev_slope = (float(prev_curve.zero_rate(10.0)[0])
+                          - float(prev_curve.zero_rate(2.0)[0])) * 10_000
+            sdelta = slope - prev_slope
+        items.append(("10Y−2Y", f"{slope:+.1f}bp", f"{sdelta:+.1f}bp" if sdelta is not None else None))
+
+    cols = st.columns(len(items))
+    for col, (lbl, val, dl) in zip(cols, items):
+        col.metric(lbl, val, delta=dl)
+
+
+def render_validation(curve, quotes, note=None):
+    """No-Arbitrage 요약 배지 + expander 상세."""
+    vdf = validation_df(curve, quotes)
+    if vdf.empty:
+        return
+    max_err = vdf["Error (bps)"].abs().max()
+    if max_err < 0.5:
+        st.success(f"✅ No-Arbitrage 검증 통과 — 최대 역산 오차 {max_err:.4f} bps")
+    else:
+        st.error(f"❌ No-Arbitrage 위반 — 최대 역산 오차 {max_err:.4f} bps")
+    with st.expander("Validation 상세 (Implied vs Input)"):
+        st.dataframe(
+            vdf.style.background_gradient(
+                subset=["Error (bps)"], cmap="RdYlGn_r", vmin=-0.5, vmax=0.5
+            ),
+            use_container_width=True,
+        )
+        if note:
+            st.caption(note)
+
+
+def render_result(entry, title, csv_name, dl_key, validation_note=None):
+    """세션에 저장된 빌드 결과 렌더 (KPI → 차트 → 검증 → Summary → CSV)."""
+    curve = entry["curve"]
+    st.caption(
+        f"기준일 **{entry['asof']}** 빌드 · 필라 {len(curve._times) - 1}개"
+        + (" · 전일 대비 Δ 표시 중" if entry.get("prev_curve") is not None else "")
+    )
+    kpi_cards(curve, entry.get("prev_curve"))
+
+    fig, csv_df = curve_figure(curve, entry["t_lo"], entry["t_hi"], title)
+    st.plotly_chart(fig, use_container_width=True, theme=None)
+
+    render_validation(curve, entry["quotes"], validation_note)
+
+    st.subheader("Curve Summary")
+    summary = curve.summary(entry["tenors_yr"])
+    st.dataframe(
+        summary.style.format({
+            "Zero Rate (%)": "{:.4f}",
+            "Discount Factor": "{:.6f}",
+            "3M Fwd Rate (%)": "{:.4f}",
+        }),
+        use_container_width=True,
+    )
+
+    st.download_button(
+        label="📥 Download Curve CSV",
+        data=csv_df.to_csv(index=False),
+        file_name=csv_name,
+        mime="text/csv",
+        key=dl_key,
+    )
+
+
+def _editor_to_dict(df):
+    """data_editor DataFrame → {tenor: rate%} (빈 행 제거)."""
+    df = df.dropna(subset=["Tenor", "Rate (%)"])
+    return {str(t): float(r) for t, r in zip(df["Tenor"], df["Rate (%)"])}
+
+
+def _sig(val_date, *dicts):
+    """입력 시그니처 — 저장된 빌드와 현재 입력의 불일치(stale) 감지용."""
+    parts = [str(val_date)]
+    for d in dicts:
+        parts.append(tuple(sorted((str(k), round(float(v), 10)) for k, v in d.items())))
+    return tuple(parts)
+
+
+def prev_business_snapshot():
+    """엑셀 로드 시 선택 기준일의 직전 영업일 스냅샷 (없으면 None)."""
+    if not market or not _bdays:
+        return None
+    try:
+        i = _bdays.index(market["asof"])
+        if i == 0:
+            return None
+        return get_market_snapshot(_data, _bdays[i - 1])
+    except Exception:
+        return None
+
+
+def _mk_usd(snap):
+    return USDSOFRCurve(
+        snap["asof"],
+        {k: v / 100 for k, v in snap["usd_sofr"]["ois"].items()},
+        {k: v / 100 for k, v in snap["usd_sofr"]["swap"].items()},
+    )
+
+
+def _mk_cd(snap):
+    return KRWCDCurve(
+        snap["asof"],
+        snap["krw_cd"]["cd_rate"] / 100,
+        {k: v / 100 for k, v in snap["krw_cd"]["swap"].items()},
+    )
+
+
+def _mk_ktb(snap):
+    return KRWKTBCurve(
+        snap["asof"],
+        {k: v / 100 for k, v in snap["krw_ktb"]["bonds"].items()},
+        short_rate_3m=snap["krw_ktb"]["short_3m"] / 100,
+        short_rate_6m=snap["krw_ktb"]["short_6m"] / 100,
+    )
+
+
+def build_prev_curve(builder):
+    """전일 스냅샷으로 비교용 커브 빌드 (실패 시 None)."""
+    snap_prev = prev_business_snapshot()
+    if snap_prev is None:
+        return None
+    try:
+        return builder(snap_prev)
+    except Exception:
+        return None
+
+
+st.session_state.setdefault("curves", {})
+
 # ---------------------------------------------------------------------------
 # Tabs
 # ---------------------------------------------------------------------------
-tab_usd, tab_krw, tab_ktb = st.tabs(["🇺🇸 USD SOFR IRS", "🇰🇷 KRW CD IRS", "🇰🇷 KRW KTB (국고채)"])
+tab_usd, tab_krw, tab_ktb, tab_cmp = st.tabs(
+    ["🇺🇸 USD SOFR IRS", "🇰🇷 KRW CD IRS", "🇰🇷 KRW KTB (국고채)", "📊 Compare"]
+)
 
 # ===========================================================================
 # USD SOFR Tab
@@ -218,50 +386,38 @@ with tab_usd:
         build_usd = st.button("🔨 Build USD SOFR Curve", type="primary", use_container_width=True)
 
     with col_out:
+        usd_ois_pct = _editor_to_dict(usd_ois_input)
+        usd_swap_pct = _editor_to_dict(usd_swap_input)
+        usd_cur_sig = _sig(usd_val_date, usd_ois_pct, usd_swap_pct)
+
         if build_usd:
             try:
-                ois_quotes  = dict(zip(usd_ois_input["Tenor"],  usd_ois_input["Rate (%)"]  / 100))
-                swap_quotes = dict(zip(usd_swap_input["Tenor"], usd_swap_input["Rate (%)"] / 100))
-
+                ois_quotes = {k: v / 100 for k, v in usd_ois_pct.items()}
+                swap_quotes = {k: v / 100 for k, v in usd_swap_pct.items()}
                 curve = USDSOFRCurve(
                     valuation_date=usd_val_date,
                     ois_quotes=ois_quotes,
                     swap_quotes=swap_quotes,
                 )
-
-                st.success(f"커브 빌드 완료: {curve}")
-
-                # Summary
                 tenors_yr = [1/12, 3/12, 6/12, 1, 2, 3, 5, 7, 10, 15, 20, 30]
-                summary = curve.summary(tenors_yr)
-                st.subheader("Curve Summary")
-                st.dataframe(summary, use_container_width=True)
-
-                # Chart
-                fig, csv_df = make_chart(tenors_yr, curve, "USD SOFR IRS Curve")
-                st.plotly_chart(fig, use_container_width=True)
-
-                st.download_button(
-                    label="📥 Download Curve CSV",
-                    data=csv_df.to_csv(index=False),
-                    file_name="usd_sofr_curve.csv",
-                    mime="text/csv",
-                    key="usd_csv_download",
-                )
-
-                # Validation
-                st.subheader("Validation (Implied vs Input)")
-                all_quotes = {**ois_quotes, **swap_quotes}
-                vdf = validation_df(curve, all_quotes)
-                st.dataframe(
-                    vdf.style.background_gradient(
-                        subset=["Error (bps)"], cmap="RdYlGn_r", vmin=-0.5, vmax=0.5
-                    ),
-                    use_container_width=True,
-                )
-
+                st.session_state["curves"]["usd"] = {
+                    "curve": curve,
+                    "prev_curve": build_prev_curve(_mk_usd),
+                    "quotes": {**ois_quotes, **swap_quotes},
+                    "tenors_yr": tenors_yr,
+                    "t_lo": tenors_yr[0], "t_hi": tenors_yr[-1],
+                    "asof": usd_val_date,
+                    "sig": usd_cur_sig,
+                }
+                st.success(f"커브 빌드 완료: {curve}")
             except Exception as e:
                 st.error(f"오류: {e}")
+
+        entry = st.session_state["curves"].get("usd")
+        if entry:
+            if entry["sig"] != usd_cur_sig:
+                st.warning("⚠️ 입력이 변경되었습니다 — **Build** 버튼을 다시 눌러 반영하세요.")
+            render_result(entry, "USD SOFR IRS Curve", "usd_sofr_curve.csv", "usd_csv_download")
         else:
             st.info("왼쪽에서 시장 데이터를 입력하고 **Build** 버튼을 누르세요.")
 
@@ -318,48 +474,36 @@ with tab_krw:
         build_krw = st.button("🔨 Build KRW CD Curve", type="primary", use_container_width=True)
 
     with col_out:
+        krw_swap_pct = _editor_to_dict(krw_swap_input)
+        krw_cur_sig = _sig(krw_val_date, {"CD": krw_cd_rate}, krw_swap_pct)
+
         if build_krw:
             try:
-                swap_quotes = dict(zip(krw_swap_input["Tenor"], krw_swap_input["Rate (%)"] / 100))
-
+                swap_quotes = {k: v / 100 for k, v in krw_swap_pct.items()}
                 curve = KRWCDCurve(
                     valuation_date=krw_val_date,
                     cd_rate=krw_cd_rate / 100,
                     swap_quotes=swap_quotes,
                 )
-
-                st.success(f"커브 빌드 완료: {curve}")
-
-                # Summary
                 tenors_yr = [3/12, 6/12, 1, 2, 3, 5, 7, 10, 15, 20, 30]
-                summary = curve.summary(tenors_yr)
-                st.subheader("Curve Summary")
-                st.dataframe(summary, use_container_width=True)
-
-                # Chart
-                fig, csv_df = make_chart(tenors_yr, curve, "KRW CD IRS Curve")
-                st.plotly_chart(fig, use_container_width=True)
-
-                st.download_button(
-                    label="📥 Download Curve CSV",
-                    data=csv_df.to_csv(index=False),
-                    file_name="krw_cd_curve.csv",
-                    mime="text/csv",
-                    key="krw_csv_download",
-                )
-
-                # Validation
-                st.subheader("Validation (Implied vs Input)")
-                vdf = validation_df(curve, swap_quotes)
-                st.dataframe(
-                    vdf.style.background_gradient(
-                        subset=["Error (bps)"], cmap="RdYlGn_r", vmin=-0.5, vmax=0.5
-                    ),
-                    use_container_width=True,
-                )
-
+                st.session_state["curves"]["cd"] = {
+                    "curve": curve,
+                    "prev_curve": build_prev_curve(_mk_cd),
+                    "quotes": swap_quotes,
+                    "tenors_yr": tenors_yr,
+                    "t_lo": tenors_yr[0], "t_hi": tenors_yr[-1],
+                    "asof": krw_val_date,
+                    "sig": krw_cur_sig,
+                }
+                st.success(f"커브 빌드 완료: {curve}")
             except Exception as e:
                 st.error(f"오류: {e}")
+
+        entry = st.session_state["curves"].get("cd")
+        if entry:
+            if entry["sig"] != krw_cur_sig:
+                st.warning("⚠️ 입력이 변경되었습니다 — **Build** 버튼을 다시 눌러 반영하세요.")
+            render_result(entry, "KRW CD IRS Curve", "krw_cd_curve.csv", "krw_csv_download")
         else:
             st.info("왼쪽에서 시장 데이터를 입력하고 **Build** 버튼을 누르세요.")
 
@@ -424,51 +568,126 @@ with tab_ktb:
         build_ktb = st.button("🔨 Build KRW KTB Curve", type="primary", use_container_width=True)
 
     with col_out:
+        ktb_bond_pct = _editor_to_dict(ktb_bond_input)
+        ktb_cur_sig = _sig(
+            ktb_val_date, {"3M": ktb_short_rate_3m, "6M": ktb_short_rate_6m}, ktb_bond_pct
+        )
+
         if build_ktb:
             try:
-                bond_quotes = dict(zip(ktb_bond_input["Tenor"], ktb_bond_input["Rate (%)"] / 100))
-
+                bond_quotes = {k: v / 100 for k, v in ktb_bond_pct.items()}
                 curve = KRWKTBCurve(
                     valuation_date=ktb_val_date,
                     bond_quotes=bond_quotes,
                     short_rate_3m=ktb_short_rate_3m / 100,
                     short_rate_6m=ktb_short_rate_6m / 100,
                 )
-
-                st.success(f"커브 빌드 완료: {curve}")
-
-                # Summary — 3M·6M 단기 + 입력 테너 전체 포함 (최대 50Y)
                 max_tenor = max(tenor_to_years(t) for t in bond_quotes)
                 long_tenors = [y for y in [1, 2, 3, 5, 7, 10, 15, 20, 30, 50]
                                if y <= max_tenor + 1e-9]
                 tenors_yr = [3/12, 6/12] + long_tenors
-                summary = curve.summary(tenors_yr)
-                st.subheader("Curve Summary")
-                st.dataframe(summary, use_container_width=True)
-
-                # Chart
-                fig, csv_df = make_chart(tenors_yr, curve, "KRW KTB (국고채) Curve")
-                st.plotly_chart(fig, use_container_width=True)
-
-                st.download_button(
-                    label="📥 Download Curve CSV",
-                    data=csv_df.to_csv(index=False),
-                    file_name="krw_ktb_curve.csv",
-                    mime="text/csv",
-                    key="ktb_csv_download",
-                )
-
-                # Validation — 국고채 Par Yield 역산 (단기채는 단리로 부트스트랩되어 제외)
-                st.subheader("Validation (Implied vs Input)")
-                vdf = validation_df(curve, bond_quotes)
-                st.dataframe(
-                    vdf.style.background_gradient(
-                        subset=["Error (bps)"], cmap="RdYlGn_r", vmin=-0.5, vmax=0.5
-                    ),
-                    use_container_width=True,
-                )
-
+                st.session_state["curves"]["ktb"] = {
+                    "curve": curve,
+                    "prev_curve": build_prev_curve(_mk_ktb),
+                    "quotes": bond_quotes,
+                    "tenors_yr": tenors_yr,
+                    "t_lo": tenors_yr[0], "t_hi": tenors_yr[-1],
+                    "asof": ktb_val_date,
+                    "sig": ktb_cur_sig,
+                }
+                st.success(f"커브 빌드 완료: {curve}")
             except Exception as e:
                 st.error(f"오류: {e}")
+
+        entry = st.session_state["curves"].get("ktb")
+        if entry:
+            if entry["sig"] != ktb_cur_sig:
+                st.warning("⚠️ 입력이 변경되었습니다 — **Build** 버튼을 다시 눌러 반영하세요.")
+            render_result(
+                entry, "KRW KTB (국고채) Curve", "krw_ktb_curve.csv", "ktb_csv_download",
+                validation_note="단기채(3M·6M)는 단리로 부트스트랩되어 역산 비교에서 제외됩니다.",
+            )
         else:
             st.info("왼쪽에서 국고채 수익률을 입력하고 **Build** 버튼을 누르세요.")
+
+
+# ===========================================================================
+# Compare Tab
+# ===========================================================================
+with tab_cmp:
+    entries = st.session_state["curves"]
+    built = [(k, name, color) for k, name, color in CURVE_META if k in entries]
+
+    if not built:
+        st.info("각 탭에서 커브를 빌드하면 여기에서 비교할 수 있습니다.")
+    else:
+        asofs = {name: entries[k]["asof"] for k, name, _ in built}
+        if len(set(asofs.values())) > 1:
+            st.warning("⚠️ 커브별 기준일이 다릅니다: "
+                       + ", ".join(f"{n}={d}" for n, d in asofs.items()))
+
+        # --- Zero 커브 오버레이 ---
+        fig = go.Figure()
+        for k, name, color in built:
+            e = entries[k]
+            t_dense = np.linspace(max(e["t_lo"], 1e-4), e["t_hi"], 300)
+            zeros = [e["curve"].zero_rate(t)[0] * 100 for t in t_dense]
+            fig.add_trace(go.Scatter(
+                x=t_dense, y=zeros, mode="lines",
+                name=f"{name} ({e['asof']})", line=dict(color=color, width=2.2),
+            ))
+        white_layout(fig, "Zero Curve Overlay (%)", height=440)
+        fig.update_xaxes(title_text="Tenor (years)")
+        fig.update_yaxes(tickformat=".2f")
+        st.plotly_chart(fig, use_container_width=True, theme=None)
+
+        # --- IRS − KTB 스왑 스프레드 ---
+        if "cd" in entries and "ktb" in entries:
+            st.subheader("Swap Spread: IRS − KTB")
+            e_cd, e_ktb = entries["cd"], entries["ktb"]
+            t_lo = max(e_cd["t_lo"], e_ktb["t_lo"], 0.25)
+            t_hi = min(e_cd["t_hi"], e_ktb["t_hi"])
+            t_dense = np.linspace(t_lo, t_hi, 300)
+            spread = [
+                (e_cd["curve"].zero_rate(t)[0] - e_ktb["curve"].zero_rate(t)[0]) * 10_000
+                for t in t_dense
+            ]
+
+            fig_sp = go.Figure()
+            fig_sp.add_trace(go.Scatter(
+                x=t_dense, y=spread, mode="lines",
+                name="Zero Spread (bp)", line=dict(color="#7c4dff", width=2.2),
+                fill="tozeroy", fillcolor="rgba(124,77,255,0.08)",
+            ))
+            white_layout(fig_sp, "IRS − KTB Zero Spread (bp)", height=380)
+            fig_sp.update_xaxes(title_text="Tenor (years)")
+            fig_sp.update_yaxes(tickformat=".1f", title_text="Spread (bp)")
+            st.plotly_chart(fig_sp, use_container_width=True, theme=None)
+
+            # 테너별 비교 테이블
+            table_tenors = [t for t in [0.25, 0.5, 1, 2, 3, 5, 7, 10, 15, 20, 30, 50]
+                            if t_lo - 1e-9 <= t <= t_hi + 1e-9]
+            rows = []
+            for t in table_tenors:
+                zi = e_cd["curve"].zero_rate(t)[0] * 100
+                zk = e_ktb["curve"].zero_rate(t)[0] * 100
+                lbl = f"{int(round(t*12))}M" if t < 1 else f"{int(t)}Y"
+                rows.append({
+                    "Tenor": lbl,
+                    "IRS Zero (%)": round(zi, 4),
+                    "KTB Zero (%)": round(zk, 4),
+                    "Spread (bp)": round((zi - zk) * 100, 2),
+                })
+            cmp_df = pd.DataFrame(rows).set_index("Tenor")
+            st.dataframe(
+                cmp_df.style.background_gradient(
+                    subset=["Spread (bp)"], cmap="RdBu_r", vmin=-100, vmax=100
+                ).format({
+                    "IRS Zero (%)": "{:.4f}",
+                    "KTB Zero (%)": "{:.4f}",
+                    "Spread (bp)": "{:+.2f}",
+                }),
+                use_container_width=True,
+            )
+        else:
+            st.caption("KRW CD IRS와 KRW KTB 커브를 모두 빌드하면 스왑 스프레드가 표시됩니다.")
