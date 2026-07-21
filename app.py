@@ -90,17 +90,22 @@ except Exception as e:
 # ---------------------------------------------------------------------------
 
 def white_layout(fig, title, height=560):
-    """화이트 배경 공통 스타일 (Streamlit 테마 오버라이드 방지: theme=None으로 렌더)."""
+    """
+    화이트 배경 공통 스타일 (Streamlit 테마 오버라이드 방지: theme=None으로 렌더).
+    제목은 좌측 상단, 범례는 우측 상단으로 분리해 겹침을 방지한다.
+    """
     fig.update_layout(
         template="plotly_white",
         paper_bgcolor="white",
         plot_bgcolor="white",
         font=dict(color="#222222"),
-        title=dict(text=title, font=dict(size=16)),
+        title=dict(text=title, font=dict(size=16),
+                   x=0.0, xanchor="left", y=0.98, yanchor="top"),
         hovermode="x unified",
         height=height,
-        legend=dict(orientation="h", yanchor="bottom", y=1.01, xanchor="left", x=0),
-        margin=dict(l=60, r=30, t=70, b=40),
+        legend=dict(orientation="h", yanchor="bottom", y=1.0,
+                    xanchor="right", x=1.0, font=dict(size=12)),
+        margin=dict(l=60, r=30, t=90, b=40),
     )
     fig.update_xaxes(gridcolor="#e8e8e8", zerolinecolor="#cccccc", linecolor="#999999")
     fig.update_yaxes(gridcolor="#e8e8e8", zerolinecolor="#cccccc", linecolor="#999999")
@@ -124,10 +129,10 @@ def curve_figure(curve, t_lo, t_hi, title):
         "3M Forward Rate (%)": np.round(fwds, 8),
     })
 
+    # subplot_titles는 범례·제목과 겹치므로 사용하지 않고 y축 라벨로 구분한다
     fig = make_subplots(
         rows=2, cols=1, shared_xaxes=True,
         row_heights=[0.62, 0.38], vertical_spacing=0.08,
-        subplot_titles=("Zero Rate & 3M Forward (%)", "Discount Factor"),
     )
     fig.add_trace(go.Scatter(
         x=t_dense, y=zeros, mode="lines",
@@ -143,8 +148,8 @@ def curve_figure(curve, t_lo, t_hi, title):
     ), row=2, col=1)
 
     white_layout(fig, title)
-    fig.update_yaxes(tickformat=".2f", row=1, col=1)
-    fig.update_yaxes(tickformat=".4f", row=2, col=1)
+    fig.update_yaxes(tickformat=".2f", title_text="Rate (%)", row=1, col=1)
+    fig.update_yaxes(tickformat=".4f", title_text="Discount Factor", row=2, col=1)
     fig.update_xaxes(title_text="Tenor (years)", row=2, col=1)
     fig.update_xaxes(rangeslider=dict(visible=True, thickness=0.07), row=2, col=1)
     return fig, csv_df
