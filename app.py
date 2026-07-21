@@ -16,6 +16,10 @@ from datetime import date
 from curves.usd_sofr_curve import USDSOFRCurve
 from curves.krw_cd_curve import KRWCDCurve
 from curves.krw_ktb_curve import KRWKTBCurve
+from utils.day_count import tenor_to_years
+from utils.market_loader import (
+    load_rates_workbook, get_business_dates, get_market_snapshot,
+)
 
 # ---------------------------------------------------------------------------
 # Page config
@@ -28,6 +32,62 @@ st.set_page_config(
 
 st.title("📈 Interest Rate Curve Builder")
 st.caption("USD SOFR IRS / KRW CD IRS / KRW KTB 커브 부트스트래핑 도구")
+
+# ---------------------------------------------------------------------------
+# Sidebar: Bloomberg Rates 엑셀 로더
+# ---------------------------------------------------------------------------
+SAMPLE_XLSX = os.path.join(os.path.dirname(__file__), "data", "260721_Rates.xlsx")
+
+
+@st.cache_data(show_spinner="엑셀 로드 중...")
+def _load_from_bytes(file_bytes: bytes):
+    import io
+    return load_rates_workbook(io.BytesIO(file_bytes))
+
+
+@st.cache_data(show_spinner="엑셀 로드 중...")
+def _load_from_path(path: str, mtime: float):
+    return load_rates_workbook(path)
+
+
+st.sidebar.header("📂 시장 데이터")
+uploaded_xlsx = st.sidebar.file_uploader(
+    "Bloomberg Rates 엑셀 업로드", type=["xlsx"], key="rates_uploader",
+)
+use_sample = st.sidebar.checkbox(
+    "저장소 샘플 사용 (260721_Rates.xlsx)",
+    value=os.path.exists(SAMPLE_XLSX),
+    disabled=uploaded_xlsx is not None,
+)
+
+market = None          # 선택된 기준일의 커브 입력 스냅샷
+mkey = "manual"        # 위젯 key 접미사 (데이터 소스·날짜 변경 시 입력 테이블 리셋)
+
+try:
+    if uploaded_xlsx is not None:
+        _data = _load_from_bytes(uploaded_xlsx.getvalue())
+        _src = uploaded_xlsx.name
+    elif use_sample and os.path.exists(SAMPLE_XLSX):
+        _data = _load_from_path(SAMPLE_XLSX, os.path.getmtime(SAMPLE_XLSX))
+        _src = "260721_Rates.xlsx (sample)"
+    else:
+        _data = None
+
+    if _data:
+        _bdays = get_business_dates(_data)
+        sel_date = st.sidebar.selectbox(
+            "기준일 선택 (영업일)",
+            options=list(reversed(_bdays)),
+            format_func=lambda d: d.strftime("%Y-%m-%d (%a)"),
+            key="rates_asof",
+        )
+        market = get_market_snapshot(_data, sel_date)
+        mkey = f"{_src}_{sel_date}"
+        st.sidebar.success(f"✅ {_src}\n기준일 {sel_date} 로드 완료")
+    else:
+        st.sidebar.info("엑셀을 업로드하거나 샘플을 선택하면\n시장 데이터가 자동 입력됩니다.")
+except Exception as e:
+    st.sidebar.error(f"로드 실패: {e}")
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -116,19 +176,28 @@ with tab_usd:
     with col_in:
         st.subheader("Valuation Date")
         usd_val_date = st.date_input(
-            "기준일", value=date(2024, 3, 19), key="usd_val_date"
+            "기준일",
+            value=market["asof"] if market else date(2024, 3, 19),
+            key=f"usd_val_date_{mkey}",
         )
 
         st.subheader("OIS Quotes (≤ 1Y)")
-        usd_ois_default = pd.DataFrame({
-            "Tenor": ["1M", "3M", "6M", "1Y"],
-            "Rate (%)": [5.31, 5.33, 5.27, 5.02],
-        })
+        if market:
+            _ois = market["usd_sofr"]["ois"]
+            usd_ois_default = pd.DataFrame({
+                "Tenor": list(_ois.keys()),
+                "Rate (%)": list(_ois.values()),
+            })
+        else:
+            usd_ois_default = pd.DataFrame({
+                "Tenor": ["1M", "3M", "6M", "1Y"],
+                "Rate (%)": [5.31, 5.33, 5.27, 5.02],
+            })
         usd_ois_input = st.data_editor(
             usd_ois_default,
             use_container_width=True,
             num_rows="dynamic",
-            key="usd_ois_editor",
+            key=f"usd_ois_editor_{mkey}",
             column_config={
                 "Tenor": st.column_config.TextColumn("Tenor", width="small"),
                 "Rate (%)": st.column_config.NumberColumn(
@@ -138,15 +207,22 @@ with tab_usd:
         )
 
         st.subheader("Swap Quotes (> 1Y)")
-        usd_swap_default = pd.DataFrame({
-            "Tenor": ["2Y", "3Y", "5Y", "7Y", "10Y", "15Y", "20Y", "30Y"],
-            "Rate (%)": [4.68, 4.49, 4.37, 4.38, 4.40, 4.45, 4.45, 4.35],
-        })
+        if market:
+            _swap = market["usd_sofr"]["swap"]
+            usd_swap_default = pd.DataFrame({
+                "Tenor": list(_swap.keys()),
+                "Rate (%)": list(_swap.values()),
+            })
+        else:
+            usd_swap_default = pd.DataFrame({
+                "Tenor": ["2Y", "3Y", "5Y", "7Y", "10Y", "15Y", "20Y", "30Y"],
+                "Rate (%)": [4.68, 4.49, 4.37, 4.38, 4.40, 4.45, 4.45, 4.35],
+            })
         usd_swap_input = st.data_editor(
             usd_swap_default,
             use_container_width=True,
             num_rows="dynamic",
-            key="usd_swap_editor",
+            key=f"usd_swap_editor_{mkey}",
             column_config={
                 "Tenor": st.column_config.TextColumn("Tenor", width="small"),
                 "Rate (%)": st.column_config.NumberColumn(
@@ -215,29 +291,38 @@ with tab_krw:
     with col_in:
         st.subheader("Valuation Date")
         krw_val_date = st.date_input(
-            "기준일", value=date(2024, 3, 19), key="krw_val_date"
+            "기준일",
+            value=market["asof"] if market else date(2024, 3, 19),
+            key=f"krw_val_date_{mkey}",
         )
 
         st.subheader("CD 91일 금리")
         krw_cd_rate = st.number_input(
             "CD 91일 금리 (%)",
-            value=3.68,
+            value=float(market["krw_cd"]["cd_rate"]) if market else 3.68,
             min_value=0.0,
             max_value=50.0,
             format="%.10g",
-            key="krw_cd_rate",
+            key=f"krw_cd_rate_{mkey}",
         )
 
         st.subheader("Swap Quotes")
-        krw_swap_default = pd.DataFrame({
-            "Tenor": ["6M", "1Y", "2Y", "3Y", "5Y", "7Y", "10Y", "20Y", "30Y"],
-            "Rate (%)": [3.62, 3.53, 3.40, 3.35, 3.37, 3.42, 3.50, 3.60, 3.55],
-        })
+        if market:
+            _swap = market["krw_cd"]["swap"]
+            krw_swap_default = pd.DataFrame({
+                "Tenor": list(_swap.keys()),
+                "Rate (%)": list(_swap.values()),
+            })
+        else:
+            krw_swap_default = pd.DataFrame({
+                "Tenor": ["6M", "1Y", "2Y", "3Y", "5Y", "7Y", "10Y", "20Y", "30Y"],
+                "Rate (%)": [3.62, 3.53, 3.40, 3.35, 3.37, 3.42, 3.50, 3.60, 3.55],
+            })
         krw_swap_input = st.data_editor(
             krw_swap_default,
             use_container_width=True,
             num_rows="dynamic",
-            key="krw_swap_editor",
+            key=f"krw_swap_editor_{mkey}",
             column_config={
                 "Tenor": st.column_config.TextColumn("Tenor", width="small"),
                 "Rate (%)": st.column_config.NumberColumn(
@@ -304,37 +389,46 @@ with tab_ktb:
     with col_in:
         st.subheader("Valuation Date")
         ktb_val_date = st.date_input(
-            "기준일", value=date(2024, 3, 19), key="ktb_val_date"
+            "기준일",
+            value=market["asof"] if market else date(2024, 3, 19),
+            key=f"ktb_val_date_{mkey}",
         )
 
         st.subheader("단기 기준금리 (단리, Simple Interest)")
         ktb_short_rate_3m = st.number_input(
             "3M 단기채 금리 (%)",
-            value=3.55,
+            value=float(market["krw_ktb"]["short_3m"]) if market else 3.55,
             min_value=0.0,
             max_value=50.0,
             format="%.10g",
-            key="ktb_short_rate_3m",
+            key=f"ktb_short_rate_3m_{mkey}",
         )
         ktb_short_rate_6m = st.number_input(
             "6M 단기채 금리 (%)",
-            value=3.50,
+            value=float(market["krw_ktb"]["short_6m"]) if market else 3.50,
             min_value=0.0,
             max_value=50.0,
             format="%.10g",
-            key="ktb_short_rate_6m",
+            key=f"ktb_short_rate_6m_{mkey}",
         )
 
         st.subheader("국고채 수익률 (Par Yield)")
-        ktb_bond_default = pd.DataFrame({
-            "Tenor": ["1Y", "2Y", "3Y", "5Y", "10Y", "20Y", "30Y", "50Y"],
-            "Rate (%)": [3.45, 3.35, 3.30, 3.35, 3.50, 3.60, 3.55, 3.45],
-        })
+        if market:
+            _bonds = market["krw_ktb"]["bonds"]
+            ktb_bond_default = pd.DataFrame({
+                "Tenor": list(_bonds.keys()),
+                "Rate (%)": list(_bonds.values()),
+            })
+        else:
+            ktb_bond_default = pd.DataFrame({
+                "Tenor": ["1Y", "2Y", "3Y", "5Y", "10Y", "20Y", "30Y", "50Y"],
+                "Rate (%)": [3.45, 3.35, 3.30, 3.35, 3.50, 3.60, 3.55, 3.45],
+            })
         ktb_bond_input = st.data_editor(
             ktb_bond_default,
             use_container_width=True,
             num_rows="dynamic",
-            key="ktb_bond_editor",
+            key=f"ktb_bond_editor_{mkey}",
             column_config={
                 "Tenor": st.column_config.TextColumn("Tenor", width="small"),
                 "Rate (%)": st.column_config.NumberColumn(
@@ -360,13 +454,9 @@ with tab_ktb:
                 st.success(f"커브 빌드 완료: {curve}")
 
                 # Summary — 3M·6M 단기 + 입력 테너 전체 포함 (최대 50Y)
-                max_tenor = max(
-                    {"1Y": 1, "2Y": 2, "3Y": 3, "5Y": 5, "10Y": 10,
-                     "20Y": 20, "30Y": 30, "50Y": 50}.get(t, 1)
-                    for t in bond_quotes
-                )
+                max_tenor = max(tenor_to_years(t) for t in bond_quotes)
                 long_tenors = [y for y in [1, 2, 3, 5, 7, 10, 15, 20, 30, 50]
-                               if y <= max_tenor]
+                               if y <= max_tenor + 1e-9]
                 tenors_yr = [3/12, 6/12] + long_tenors
                 summary = curve.summary(tenors_yr)
                 st.subheader("Curve Summary")

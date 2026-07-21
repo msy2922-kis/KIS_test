@@ -9,6 +9,7 @@ def add_tenor(base_date: date, tenor: str) -> date:
     """
     Add tenor string to a date.
     Supported tenors: 1D, 1W, 1M, 3M, 6M, 9M, 1Y, 2Y, ...
+    Decimal years are also supported: 1.5Y -> 18M, 0.5Y -> 6M.
     """
     tenor = tenor.upper().strip()
     if tenor.endswith("D"):
@@ -20,7 +21,31 @@ def add_tenor(base_date: date, tenor: str) -> date:
     elif tenor.endswith("M"):
         return base_date + relativedelta(months=int(tenor[:-1]))
     elif tenor.endswith("Y"):
-        return base_date + relativedelta(years=int(tenor[:-1]))
+        num = float(tenor[:-1])
+        if num.is_integer():
+            return base_date + relativedelta(years=int(num))
+        months = round(num * 12)
+        if abs(num * 12 - months) > 1e-9:
+            raise ValueError(f"Tenor {tenor} is not a whole number of months")
+        return base_date + relativedelta(months=months)
+    else:
+        raise ValueError(f"Unsupported tenor format: {tenor}")
+
+
+def tenor_to_years(tenor: str) -> float:
+    """
+    Convert a tenor string to an approximate year fraction.
+    '3M' -> 0.25, '1.5Y' -> 1.5, '2W' -> 0.0384, '1D' -> 0.0027
+    """
+    tenor = tenor.upper().strip()
+    if tenor.endswith("D"):
+        return float(tenor[:-1]) / 365.0
+    elif tenor.endswith("W"):
+        return float(tenor[:-1]) * 7.0 / 365.0
+    elif tenor.endswith("M"):
+        return float(tenor[:-1]) / 12.0
+    elif tenor.endswith("Y"):
+        return float(tenor[:-1])
     else:
         raise ValueError(f"Unsupported tenor format: {tenor}")
 
