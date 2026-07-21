@@ -318,6 +318,81 @@ def build_prev_curve(builder):
 st.session_state.setdefault("curves", {})
 
 # ---------------------------------------------------------------------------
+# Sidebar: 전체 커브 일괄 빌드 (엑셀 로드 + 기준일 선택 시 활성화)
+# ---------------------------------------------------------------------------
+if market:
+    st.sidebar.divider()
+    if st.sidebar.button("🚀 전체 커브 일괄 빌드", type="primary",
+                         use_container_width=True, key="build_all"):
+        _errors = []
+        with st.spinner("USD SOFR · KRW CD · KRW KTB 커브 계산 중..."):
+            # --- USD SOFR ---
+            try:
+                _ois_pct = market["usd_sofr"]["ois"]
+                _swap_pct = market["usd_sofr"]["swap"]
+                _curve = _mk_usd(market)
+                _tenors = [1/12, 3/12, 6/12, 1, 2, 3, 5, 7, 10, 15, 20, 30]
+                st.session_state["curves"]["usd"] = {
+                    "curve": _curve,
+                    "prev_curve": build_prev_curve(_mk_usd),
+                    "quotes": {k: v / 100 for k, v in {**_ois_pct, **_swap_pct}.items()},
+                    "raw_quotes": {**_ois_pct, **_swap_pct},
+                    "tenors_yr": _tenors,
+                    "t_lo": _tenors[0], "t_hi": _tenors[-1],
+                    "asof": market["asof"],
+                    "sig": _sig(market["asof"], _ois_pct, _swap_pct),
+                }
+            except Exception as e:
+                _errors.append(f"USD SOFR: {e}")
+
+            # --- KRW CD ---
+            try:
+                _cd_rate = float(market["krw_cd"]["cd_rate"])
+                _swap_pct = market["krw_cd"]["swap"]
+                _curve = _mk_cd(market)
+                _tenors = [3/12, 6/12, 1, 2, 3, 5, 7, 10, 15, 20, 30]
+                st.session_state["curves"]["cd"] = {
+                    "curve": _curve,
+                    "prev_curve": build_prev_curve(_mk_cd),
+                    "quotes": {k: v / 100 for k, v in _swap_pct.items()},
+                    "raw_quotes": {"3M": _cd_rate, **_swap_pct},
+                    "tenors_yr": _tenors,
+                    "t_lo": _tenors[0], "t_hi": _tenors[-1],
+                    "asof": market["asof"],
+                    "sig": _sig(market["asof"], {"CD": _cd_rate}, _swap_pct),
+                }
+            except Exception as e:
+                _errors.append(f"KRW CD: {e}")
+
+            # --- KRW KTB ---
+            try:
+                _s3m = float(market["krw_ktb"]["short_3m"])
+                _s6m = float(market["krw_ktb"]["short_6m"])
+                _bond_pct = market["krw_ktb"]["bonds"]
+                _curve = _mk_ktb(market)
+                _max_tenor = max(tenor_to_years(t) for t in _bond_pct)
+                _long = [y for y in [1, 2, 3, 5, 7, 10, 15, 20, 30, 50]
+                         if y <= _max_tenor + 1e-9]
+                _tenors = [3/12, 6/12] + _long
+                st.session_state["curves"]["ktb"] = {
+                    "curve": _curve,
+                    "prev_curve": build_prev_curve(_mk_ktb),
+                    "quotes": {k: v / 100 for k, v in _bond_pct.items()},
+                    "raw_quotes": {"3M": _s3m, "6M": _s6m, **_bond_pct},
+                    "tenors_yr": _tenors,
+                    "t_lo": _tenors[0], "t_hi": _tenors[-1],
+                    "asof": market["asof"],
+                    "sig": _sig(market["asof"], {"3M": _s3m, "6M": _s6m}, _bond_pct),
+                }
+            except Exception as e:
+                _errors.append(f"KRW KTB: {e}")
+
+        if _errors:
+            st.sidebar.error("일부 커브 빌드 실패:\n" + "\n".join(_errors))
+        else:
+            st.sidebar.success("✅ 3개 커브 빌드 완료\n각 탭·Compare에서 결과를 확인하세요.")
+
+# ---------------------------------------------------------------------------
 # Tabs
 # ---------------------------------------------------------------------------
 tab_usd, tab_krw, tab_ktb, tab_cmp = st.tabs(
