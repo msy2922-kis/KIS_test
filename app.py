@@ -404,6 +404,7 @@ with tab_usd:
                     "curve": curve,
                     "prev_curve": build_prev_curve(_mk_usd),
                     "quotes": {**ois_quotes, **swap_quotes},
+                    "raw_quotes": {**usd_ois_pct, **usd_swap_pct},
                     "tenors_yr": tenors_yr,
                     "t_lo": tenors_yr[0], "t_hi": tenors_yr[-1],
                     "asof": usd_val_date,
@@ -490,6 +491,7 @@ with tab_krw:
                     "curve": curve,
                     "prev_curve": build_prev_curve(_mk_cd),
                     "quotes": swap_quotes,
+                    "raw_quotes": {"3M": krw_cd_rate, **krw_swap_pct},  # CD 91일 = 3M 앵커
                     "tenors_yr": tenors_yr,
                     "t_lo": tenors_yr[0], "t_hi": tenors_yr[-1],
                     "asof": krw_val_date,
@@ -590,6 +592,8 @@ with tab_ktb:
                     "curve": curve,
                     "prev_curve": build_prev_curve(_mk_ktb),
                     "quotes": bond_quotes,
+                    "raw_quotes": {"3M": ktb_short_rate_3m, "6M": ktb_short_rate_6m,
+                                   **ktb_bond_pct},
                     "tenors_yr": tenors_yr,
                     "t_lo": tenors_yr[0], "t_hi": tenors_yr[-1],
                     "asof": ktb_val_date,
@@ -640,6 +644,35 @@ with tab_cmp:
         fig.update_xaxes(title_text="Tenor (years)")
         fig.update_yaxes(tickformat=".2f")
         st.plotly_chart(fig, use_container_width=True, theme=None)
+
+        # --- Raw 마켓 레이트 비교 (입력 원값, 보간 없음) ---
+        st.subheader("Market Rates (Raw Input)")
+        st.caption("각 탭에 입력된 만기별 마켓 레이트 원값 비교 — 보간·부트스트랩을 거치지 않은 호가 그대로입니다.")
+        fig_raw = go.Figure()
+        for k, name, color in built:
+            e = entries[k]
+            raw = e.get("raw_quotes") or {t: v * 100 for t, v in e["quotes"].items()}
+            pts = []
+            for tenor, rate in raw.items():
+                try:
+                    pts.append((tenor_to_years(tenor), tenor, float(rate)))
+                except ValueError:
+                    continue  # 테너 형식이 아닌 라벨은 스킵
+            pts.sort(key=lambda p: p[0])
+            fig_raw.add_trace(go.Scatter(
+                x=[p[0] for p in pts],
+                y=[p[2] for p in pts],
+                mode="lines+markers",
+                name=f"{name} ({e['asof']})",
+                line=dict(color=color, width=1.5, dash="dot"),
+                marker=dict(size=8, symbol="circle"),
+                text=[p[1] for p in pts],
+                hovertemplate="%{text}: %{y:.4f}%<extra>" + name + "</extra>",
+            ))
+        white_layout(fig_raw, "만기별 마켓 레이트 (Raw Input, %)", height=420)
+        fig_raw.update_xaxes(title_text="Tenor (years)")
+        fig_raw.update_yaxes(tickformat=".2f", title_text="Market Rate (%)")
+        st.plotly_chart(fig_raw, use_container_width=True, theme=None)
 
         # --- IRS − KTB 스왑 스프레드 ---
         if "cd" in entries and "ktb" in entries:
