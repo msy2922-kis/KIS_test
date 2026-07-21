@@ -112,10 +112,11 @@ def white_layout(fig, title, height=560):
     return fig
 
 
-def curve_figure(curve, t_lo, t_hi, title):
+def curve_figure(curve, t_lo, t_hi, title, raw_quotes=None):
     """
-    2단 서브플롯: 상단 Zero + 3M Fwd (%), 하단 Discount Factor.
+    2단 서브플롯: 상단 Zero + 3M Fwd (%) + 마켓 레이트 마커, 하단 Discount Factor.
     300pt 고밀도 그리드로 MC 곡선을 부드럽게 표현. Returns (fig, csv_df).
+    raw_quotes: {tenor: rate%} — 입력 호가 원값을 상단 차트에 마커로 표시.
     """
     t_dense = np.linspace(max(t_lo, 1e-4), t_hi, 300)
     zeros = [curve.zero_rate(t)[0] * 100 for t in t_dense]
@@ -146,6 +147,29 @@ def curve_figure(curve, t_lo, t_hi, title):
         x=t_dense, y=dfs, mode="lines",
         name="Discount Factor", line=dict(color=C_DF, width=2),
     ), row=2, col=1)
+
+    # 입력 마켓 레이트 원값 마커 (상단 서브플롯)
+    if raw_quotes:
+        pts = []
+        for tenor, rate in raw_quotes.items():
+            try:
+                ty = tenor_to_years(tenor)
+            except ValueError:
+                continue
+            if t_lo - 1e-9 <= ty <= t_hi + 1e-9:
+                pts.append((ty, tenor, float(rate)))
+        pts.sort(key=lambda p: p[0])
+        if pts:
+            fig.add_trace(go.Scatter(
+                x=[p[0] for p in pts],
+                y=[p[2] for p in pts],
+                mode="markers",
+                name="Market Rate (input)",
+                marker=dict(color="#d62728", size=8, symbol="diamond",
+                            line=dict(color="white", width=1)),
+                text=[p[1] for p in pts],
+                hovertemplate="%{text}: %{y:.4f}%<extra>Market Rate</extra>",
+            ), row=1, col=1)
 
     white_layout(fig, title)
     fig.update_yaxes(tickformat=".2f", title_text="Rate (%)", row=1, col=1)
@@ -227,7 +251,8 @@ def render_result(entry, title, csv_name, dl_key, validation_note=None):
     )
     kpi_cards(curve, entry.get("prev_curve"))
 
-    fig, csv_df = curve_figure(curve, entry["t_lo"], entry["t_hi"], title)
+    raw = entry.get("raw_quotes") or {t: v * 100 for t, v in entry["quotes"].items()}
+    fig, csv_df = curve_figure(curve, entry["t_lo"], entry["t_hi"], title, raw_quotes=raw)
     st.plotly_chart(fig, use_container_width=True, theme=None)
 
     render_validation(curve, entry["quotes"], validation_note)
