@@ -83,15 +83,15 @@ Log-Linear DF(=구간별 선형 zero)는 구간 내 선도금리가 상수여서
 
 ## 6. 데이터 소스
 
-Bloomberg 시계열 export 엑셀을 UI에서 업로드해 사용한다.
+시장 금리 시계열 엑셀을 UI에서 업로드해 사용한다.
 (데이터 파일은 저작권 이슈로 레포에 포함하지 않음 — `data/`는 .gitignore 처리)
 
-| 시트 | 사용 | 내용 |
+| 시트 (부분 일치 매칭) | 사용 | 내용 |
 |---|---|---|
-| SOFR IRS(BGN cut) | ✅ | USOSFR1~30 + SOFRRATE(O/N) + XSOFR3M(3M 복리) |
-| KRW Rates(IRS) | ✅ | KWSWO 6M~30Y (1.5Y·4Y 포함) + KWCDC(CD) |
-| KRW Treasury | ✅ | KBGBG(민평4사) 3M~50Y + KWCDC |
-| US Treasury / KRW Rates(CRS) / USDKRW | 미사용 | 향후 UST·CRS·FX-implied 커브 확장용 |
+| `SOFR IRS` 포함 | ✅ | USD SOFR IRS 1Y~30Y + O/N SOFR + 3M 복리 SOFR |
+| `KRW Rates(IRS)` 포함 | ✅ | KRW IRS 6M~30Y (1.5Y·4Y 포함) + CD수익률 |
+| `KRW Treasury` 포함 | ✅ | 국고채 민평 수익률 3M~50Y + CD수익률 |
+| 기타 시트 (UST·CRS·FX 등) | 미사용 | 향후 커브 확장용 |
 
 로더(`utils/market_loader.py`) 처리: 주말 carry-forward 행 제거, `'1y IRS'→'1Y'` 정규화,
 % 단위 유지(커브 생성 시 /100).

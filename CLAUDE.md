@@ -12,7 +12,7 @@
   - 공통 패턴: 중간 테너 선형 보간 → 순차 부트스트랩 → `_densify()` 호출
 - `utils/interpolation.py` — `monotone_convex_df()` (Hagan-West 2006). 커브 보간의 단일 진입점.
 - `utils/day_count.py` — `add_tenor()` (소수 연도 `1.5Y` 지원), `tenor_to_years()`, `dcf()`
-- `utils/market_loader.py` — Bloomberg 엑셀 파서. 시트 R5 라벨 → 표준 테너 정규화, 주말 필터.
+- `utils/market_loader.py` — 시장 금리 엑셀 파서. 시트 R5 라벨 → 표준 테너 정규화, 주말 필터.
 - `app.py` — Streamlit UI. 사이드바 엑셀 **업로드 전용** 로더 → `market` 스냅샷 → 탭별 자동 주입.
 
 ### 데이터 정책 (중요)

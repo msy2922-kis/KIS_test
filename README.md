@@ -3,7 +3,7 @@
 시장 호가(스왑 금리·채권 수익률)로부터 **Zero Rate / Discount Factor / Forward Rate**를
 추출하는 금리 커브 부트스트래핑 시스템입니다.
 
-Streamlit 웹 UI에서 시장 데이터를 직접 입력하거나 Bloomberg 엑셀을 업로드해
+Streamlit 웹 UI에서 시장 데이터를 직접 입력하거나 시장 금리 엑셀을 업로드해
 커브를 빌드하고, 결과를 차트·테이블·CSV로 확인할 수 있습니다.
 
 ## 지원 커브
@@ -33,7 +33,7 @@ streamlit run app.py
 
 ### 사용 방법
 
-1. **사이드바**: Bloomberg Rates 엑셀 업로드 (데이터 파일은 저작권 이슈로 레포에 포함하지 않음)
+1. **사이드바**: 시장 금리 엑셀 업로드 (데이터 파일은 저작권 이슈로 레포에 포함하지 않음)
 2. **기준일 선택**: 영업일 목록에서 선택 → 3개 탭 입력 테이블 자동 주입
 3. **탭별 Build 버튼**: 커브 빌드 → Summary 테이블 / 차트 / Validation / CSV 다운로드
 4. 입력 테이블은 자동 주입 후에도 **직접 수정 가능** (행 추가·삭제 포함)
@@ -62,7 +62,7 @@ KIS_test/
 ├── utils/
 │   ├── day_count.py            # 테너 연산(1.5Y 지원)·Day Count
 │   ├── interpolation.py        # Hagan-West Monotone Convex 보간
-│   └── market_loader.py        # Bloomberg 엑셀 → 커브 입력 변환
+│   └── market_loader.py        # 시장 금리 엑셀 → 커브 입력 변환
 ├── examples/                   # 예제·검증 스크립트
 └── docs/
     └── methodology.md          # 방법론 상세 문서
@@ -73,9 +73,9 @@ KIS_test/
 > ⚠️ 시장 데이터 파일은 **저작권(데이터 라이선스) 이슈로 레포에 포함하지 않습니다.**
 > 실행 시 화면에서 직접 업로드하세요 (`data/` 폴더는 .gitignore 처리됨).
 
-Bloomberg 시계열 export 형식을 지원합니다:
-- 필수 시트: `SOFR IRS(BGN cut)`, `KRW Rates(IRS)`, `KRW Treasury`
-- R5: 테너 라벨 (`1y IRS`, `3m KTB`, `CD수익률` 등) / R6: Bloomberg 티커 / R9~: 일별 데이터
+시장 금리 시계열 엑셀 형식을 지원합니다:
+- 필수 시트: 이름에 `SOFR IRS` / `KRW Rates(IRS)` / `KRW Treasury`를 포함하는 시트 (부분 일치 매칭)
+- R5: 테너 라벨 (`1y IRS`, `3m KTB`, `CD수익률` 등) / R9~: 일별 데이터
 - 주말 행은 금요일 값 carry-forward → 로더가 자동 제거
 - 금리 단위: % (예: 4.03 = 4.03%)
 

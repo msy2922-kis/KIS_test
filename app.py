@@ -34,7 +34,7 @@ st.title("📈 Interest Rate Curve Builder")
 st.caption("USD SOFR IRS / KRW CD IRS / KRW KTB 커브 부트스트래핑 도구")
 
 # ---------------------------------------------------------------------------
-# Sidebar: Bloomberg Rates 엑셀 로더 (업로드 전용 — 데이터 파일은 레포에 저장하지 않음)
+# Sidebar: 시장 금리 엑셀 로더 (업로드 전용 — 데이터 파일은 레포에 저장하지 않음)
 # ---------------------------------------------------------------------------
 @st.cache_data(show_spinner="엑셀 로드 중...")
 def _load_from_bytes(file_bytes: bytes):
@@ -44,7 +44,7 @@ def _load_from_bytes(file_bytes: bytes):
 
 st.sidebar.header("📂 시장 데이터")
 uploaded_xlsx = st.sidebar.file_uploader(
-    "Bloomberg Rates 엑셀 업로드", type=["xlsx"], key="rates_uploader",
+    "시장 금리 엑셀 업로드", type=["xlsx"], key="rates_uploader",
 )
 
 market = None          # 선택된 기준일의 커브 입력 스냅샷
@@ -69,7 +69,7 @@ try:
         mkey = f"{_src}_{sel_date}"
         st.sidebar.success(f"✅ {_src}\n기준일 {sel_date} 로드 완료")
     else:
-        st.sidebar.info("Bloomberg Rates 엑셀을 업로드하면\n시장 데이터가 자동 입력됩니다.")
+        st.sidebar.info("시장 금리 엑셀을 업로드하면\n시장 데이터가 자동 입력됩니다.")
 except Exception as e:
     st.sidebar.error(f"로드 실패: {e}")
 
