@@ -1,7 +1,20 @@
 # CLAUDE.md — 개발 가이드
 
-금리 커브 부트스트래핑 시스템 (USD SOFR IRS / KRW CD IRS / KRW KTB).
-프로젝트 개요는 [README.md](README.md), 방법론 상세는 [docs/methodology.md](docs/methodology.md) 참고.
+금리 커브 부트스트래핑 시스템 (USD SOFR IRS / KRW CD IRS / KRW KTB)
++ Short Rate 모델 시뮬레이션 + Hull-White 캘리브레이션.
+프로젝트 개요는 [README.md](README.md), 방법론 상세는 [docs/methodology.md](docs/methodology.md),
+시뮬레이션 구조는 [ARCHITECTURE.md](ARCHITECTURE.md) 참고.
+
+## 서브 프로젝트 구성 (2026-07-27 브랜치 통합)
+
+| 영역 | 진입점 | 핵심 모듈 | 출처 브랜치 |
+|---|---|---|---|
+| 커브 부트스트래핑 | `app.py` (Streamlit) | `curves/`, `utils/` | interest-rate-curve-extraction-OMELj |
+| Short Rate 시뮬레이션 | `simulation_app.py` (Streamlit), `main.py` (CLI) | `short_rate_models.py`, `simulation.py`, `visualization.py` | add-documentation-2abHL (⊃ short-rate-simulation-CJMlz) |
+| HW 캘리브레이션 | `examples/hw_calibration_example.py` | `calibration/hw_calibrator.py` | add-curve-fitting-calibration-7j4eh |
+
+주의: 7j4eh 브랜치의 app.py(HW Calibration 탭 포함 구버전 UI)는 통합 시 채택하지 않았다.
+HW 탭을 UI에 다시 넣으려면 현재 `app.py` 기준으로 새로 붙여야 한다.
 
 ## 아키텍처 요약
 
@@ -45,7 +58,7 @@ python examples/krw_ktb_validation.py
 코드·구조를 수정하면 관련 문서(README.md, CLAUDE.md, docs/methodology.md)도 같은 커밋에서 갱신할 것.
 
 ### 4. Git
-- 개발 브랜치: `claude/interest-rate-curve-extraction-OMELj`
+- 개발 브랜치: `main` (2026-07-27에 claude/* 작업 브랜치들을 통합 완료)
 - 커밋 메시지는 한국어 본문 허용, 접두사(feat/fix/test/docs) 사용
 - push 전 예제 스크립트로 스모크 테스트
 
@@ -62,6 +75,9 @@ python examples/krw_ktb_validation.py
 
 ```bash
 pip install -r requirements.txt
-streamlit run app.py                       # UI
-python examples/krw_ktb_validation.py      # 4대 조건 검증
+streamlit run app.py                        # 커브 빌더 UI
+streamlit run simulation_app.py             # Short Rate 3D 시뮬레이션 UI
+python main.py                              # 시뮬레이션 CLI 데모 (PNG 저장)
+python examples/krw_ktb_validation.py       # 4대 조건 검증
+python examples/hw_calibration_example.py   # HW 캘리브레이션 예제
 ```
